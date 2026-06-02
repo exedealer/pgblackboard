@@ -1,0 +1,47 @@
+[package]
+name = "pgbb"
+version = "4.0.0"
+description = "pgBlackboard - Postgres web interface for SQL geeks"
+license = "MIT"
+authors = ["exe-dealer@yandex.kz"]
+repository = "https://github.com/exedealer/pgblackboard"
+edition = "2024"
+
+[[bin]]
+name = "pgbb"
+path = "server/main.rs"
+
+
+[dependencies.tokio]
+version = "1.52.3"
+features = ["rt-multi-thread", "macros", "net", "time", "signal", "io-util"]
+
+[dependencies.axum]
+version = "0.8.9"
+features = ["tokio", "http1", "form", "query"]
+default-features = false
+
+[dependencies.openssl]
+version = "0.10.80"
+
+[dependencies.serde]
+version = "1.0.228"
+features = ["derive"]
+
+[dependencies.bytes]
+version = "1.11.1"
+
+[dependencies.clap]
+version = "4.6.1"
+features = ["std", "help", "usage", "error-context"]
+default-features = false
+
+[dependencies.futures-util]
+version = "0.3.32"
+
+[dependencies.log]
+version = "0.4.29"
+
+[dependencies.env_logger]
+version = "0.11.10"
+default-features = false

@@ -275,7 +275,7 @@ const methods = {
   },
   on_mousedown(/** @type {MouseEvent} */ e) {
     // focus datum editor on cell double click
-    if (e.detail > 1 && e.target.matches('.out-cell')) {
+    if (e.detail > 1 && e.target.closest('.out-cell')) {
       e.preventDefault(); // prevent text selection on double click
       this.$broadcast('req_datum_focus');
     }

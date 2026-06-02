@@ -1,3 +1,5 @@
+  select coalesce(json_agg(it order by ord, "name"), '[]') from (
+
 select text ''          db
   , text ''             ntype
   , oid '0'             noid
@@ -127,4 +129,6 @@ from pg_ls_dir($3) fname
 where 'dir' = $1
   and not stat.isdir
 
-order by ord, "name"
+-- order by ord, "name"
+
+  ) it

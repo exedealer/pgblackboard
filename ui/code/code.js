@@ -87,8 +87,7 @@ const methods = {
     this.$watch(
       _ => (
         this.$store.out.messages
-        .filter(m => m.tag == 'error' && m.payload.position > 0)
-        .map(m => m.payload)
+        .filter(m => m.tag == 'error' && Number.isFinite(m.position))
       ),
       this.watch_errors,
       { immediate: true },
@@ -127,7 +126,7 @@ const methods = {
     // if (errors.length == 0 && old_errors.length == 0) return; // ignore unchanged
     this._decorations.set(
       errors
-      .map(e => this._editor.getModel().getPositionAt(e.position - 1))
+      .map(e => this._editor.getModel().getPositionAt(e.position))
       .map(({ lineNumber, column }) => ({
         range: {
           startLineNumber: lineNumber,

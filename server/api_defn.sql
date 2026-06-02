@@ -30,7 +30,7 @@ select concat_ws(e'\n'
   , select_cols
   , format('FROM %I.%I', nspname, relname)
   , 'ORDER BY ' || orderby_cols
-  , 'LIMIT 1000'
+  -- , 'LIMIT 1000'
   , ';'
   ,''
   , (

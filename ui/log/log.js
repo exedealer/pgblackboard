@@ -83,7 +83,7 @@ const methods = {
       ];
     }
 
-    const { severity, severityEn, code, message, detail, hint, ...fields } = payload;
+    const { severity, severity_en, code, message, detail, hint, position_utf16, ...fields } = payload;
     return [{
       tag: 'details',
       open: kind == 'error',
@@ -95,7 +95,7 @@ const methods = {
             {
               tag: 'span',
               class: 'log-prefix',
-              'data-severity': severityEn,
+              'data-severity': severity_en,
               inner: [
                 { tag: 'span', class: 'log-severity', innerText: severity },
                 code && code != '00000' && { tag: 'span', class: 'log-code', innerText: ' #' + code },

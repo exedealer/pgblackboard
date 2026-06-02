@@ -89,17 +89,21 @@ export class Store {
       pending: true,
       ok: false,
       error: null,
-      u,
+      u, // TODO u -> user
       token: null,
     };
     const auth = this.auth;
     try {
+
+      const resp = await fetch('api/auth', {
+        method: 'POST',
+        headers: { 'accept': 'application/json' },
+        body: new URLSearchParams({ user: u, password }),
+      });
+      // TODO use resp.body for error message for non-200 response
+      if (!resp.ok) throw Error(`${resp.status} ${resp.statusText}`, { cause: resp });
+      const { token } = await resp.json() || 0;
       // await new Promise(resolve => setTimeout(resolve, 3000));
-      const { ok, error, token } = await this._api('auth', { u }, { password });
-      if (!ok) {
-        auth.error = error;
-        return;
-      }
       auth.token = token;
       // TODO concurent store mutation if multiple parallel .auth() called
       await this._load_tree_and_drafts();
@@ -171,6 +175,11 @@ export class Store {
       id: draft_id,
       loading: false,
       caption: '',
+      // TODO pass selection_range to .run() action.
+      // This was done to be able run selection in non-editor component.
+      // But currently RUN button does only full run.
+      // Or we can just store selection range globaly.
+      // No need to store selection on draft item.
       cursor_pos: 0,
       cursor_len: 0,
     };
@@ -212,10 +221,19 @@ export class Store {
     node.children = { nodes: [], error: null, ready: false };
     if (should_collapse) return;
     const { db, children, ntype, noid, ntid } = node;
-    const { u } = this.auth;
+    const { u: user, token } = this.auth;
     try {
       children.ready = null; // loading
-      const { result } = await this._api('tree', { u, db, ntype, noid, ntid });
+      const args = (
+        Object.entries({ user, db, ntype, noid, ntid })
+        .filter(([_, v]) => v != null)
+      );
+      const resp = await fetch('api/tree?' + new URLSearchParams(args), {
+        method: 'POST',
+        headers: { 'x-pgbb-auth': token },
+      });
+      if (!resp.ok) throw Error('api/tree error', { cause: resp });
+      const result = await resp.json();
       // await new Promise(res => setTimeout(res, 2000));
       for (const cn of result) {
         cn.children = { nodes: [], error: null, ready: false };
@@ -242,11 +260,23 @@ export class Store {
       this.tree,
     );
     const { db, ntype, noid, ntid } = node;
-    const { u } = this.auth;
-    const content = await this._api('defn', { u, db, ntype, noid, ntid }).then(
-      ({ result }) => result || '',
-      err => `/* ${err} */\n`,
+    const { u: user, token } = this.auth;
+    const args = (
+      Object.entries({ user, db, ntype, noid, ntid })
+      .filter(([_, v]) => v != null)
     );
+
+    let content;
+    try {
+      const resp = await fetch('api/defn?' + new URLSearchParams(args), {
+        method: 'POST',
+        headers: { 'x-pgbb-auth': token },
+      });
+      if (!resp.ok) throw Error('api/defn error', { cause: resp });
+      content = await resp.text();
+    } catch (ex) {
+      content = `/* ${ex} */\n`;
+    }
     // TODO indicate dead treenode when treenode not found
     if (!editor_model.isDisposed()) {
       editor_model.setValue(content);
@@ -484,7 +514,11 @@ export class Store {
 
   async wake() {
     const id = this.out.suspended.wake_id;
-    await this._api('wake', { id });
+    const { u: user, token } = this.auth;
+    const headers = { 'x-pgbb-auth': token };
+    const arg = new URLSearchParams({ user, id });
+    const resp = await fetch('api/wake?' + arg, { method: 'POST', headers });
+    if (!resp.ok) throw Error('wake error', { cause: resp });
   }
 
   can_run() {
@@ -503,6 +537,8 @@ export class Store {
       suspended: null,
     };
     const out = this.out;
+
+    let stmt_pos = 0;
 
     try {
       const tz = this.timezone;
@@ -523,13 +559,12 @@ export class Store {
       }
 
       const { u, token } = this.auth;
-      const qs = new URLSearchParams({ api: 'run', u, db, tz });
-      const resp = await fetch('?' + qs, {
+      const qs = new URLSearchParams({ user: u, db, tz });
+      const resp = await fetch('api/run?' + qs, {
         method: 'POST',
         signal: out.aborter.signal,
         headers: {
-          'content-type': 'application/json; charset=utf-8',
-          'x-pgbb-auth': token, // TODO dry this._api()
+          'x-pgbb-auth': token, // TODO dry
         },
         body: sql,
       });
@@ -546,10 +581,14 @@ export class Store {
         .pipeThrough(new TextDecoderStream())
         .pipeThrough(new LineSplitter())
       );
-      for await (const line of msg_stream) {
+      for await (const lines of msg_stream)
+      for (const line of lines) {
         const [tag, payload] = JSON.parse(line);
         out.suspended = null;
         switch (tag) {
+          case 'start':
+            stmt_pos = payload.position_utf16;
+            break;
           case 'head':
             out.frames.push({
               rel_name: payload.rel_name,
@@ -568,27 +607,25 @@ export class Store {
             });
             break;
           // TODO CopyData
-          case 'rows':
+          case 'row':
             const frame = out.frames.at(-1);
-            for (const tuple of payload) {
-              for (let col_idx = frame.cols.length; col_idx--;) {
-                const datum = tuple[col_idx];
-                if (datum == null) continue;
-                const col = frame.cols[col_idx];
-                try {
-                  tuple[col_idx] = prettify_datum(col, datum);
-                } catch (ex) {
-                  // TODO handle datum transformation error
-                }
+            for (let col_idx = frame.cols.length; col_idx--;) {
+              const datum = payload[col_idx];
+              if (datum == null) continue;
+              const col = frame.cols[col_idx];
+              try {
+                payload[col_idx] = prettify_datum(col, datum);
+              } catch (ex) {
+                // TODO handle datum transformation error
               }
-              frame.rows.push({
-                original: Object.freeze(tuple),
-                modified: null,
-              });
             }
+            frame.rows.push({
+              original: Object.freeze(payload),
+              modified: null,
+            });
             // select first row in first non empty table
             // TODO select first frame regardless of rows count? (more predictable behavior)
-            if (out.selected_frame_idx == null && payload.length) {
+            if (out.selected_frame_idx == null) {
               out.selected_frame_idx = out.frames.length - 1;
               out.selected_row_idx = 0;
             }
@@ -596,22 +633,31 @@ export class Store {
           case 'complete':
           case 'error':
           case 'notice':
-            out.messages.push({ tag, payload });
+            let position = stmt_pos;
+            if (isFinite(payload.position)) {
+              let err_pos_1based_codepoints = Number(payload.position);
+              for (const ch of sql.slice(stmt_pos)) {
+                if (err_pos_1based_codepoints-- <= 1) break;
+                position += ch.length;
+              }
+            }
+            out.messages.push({ tag, position, payload });
             break;
           case 'suspended':
             out.suspended = payload;
             break;
         }
       }
-    } catch (err) {
+    } catch (ex) {
       out.messages.push({
         tag: 'error',
+        position: stmt_pos,
         payload: {
-          severityEn: 'ERROR',
+          severity_en: 'ERROR',
           severity: 'ERROR', // TODO non localized
           // code: 'E_PGBB_FRONTEND',
-          message: String(err),
-          detail: err?.stack, // TODO .cause
+          message: String(ex),
+          detail: ex?.stack, // TODO .cause
         },
       });
     } finally {
@@ -624,16 +670,12 @@ export class Store {
 
 class LineSplitter extends TransformStream {
   constructor() {
-    let buffer = '';
+    let partial = '';
     super({
       async transform(chunk, ctl) {
-        buffer += chunk;
-        let eol_idx, pos = 0;
-        while (0 <= (eol_idx = buffer.indexOf('\n', pos))) {
-          ctl.enqueue(buffer.slice(pos, eol_idx + 1));
-          pos = eol_idx + 1;
-        }
-        buffer = buffer.slice(pos);
+        const lines = (partial + chunk).split('\n');
+        partial = lines.pop(); // last line is not terminated, keep it
+        ctl.enqueue(lines);
       },
       // TODO flush incomplete line?
     });
