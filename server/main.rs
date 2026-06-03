@@ -55,7 +55,7 @@ fn main() -> Result<(), axum::BoxError> {
     use axum::extract::Query;
 
     let pgctor = pg::Connector::new()
-      .with(c"database", c"postgres")
+      .with(c"client_min_messages", c"NOTICE")
       .with(c"application_name", c"pgbb");
 
     // https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNSTRING-URIS
@@ -97,6 +97,7 @@ fn main() -> Result<(), axum::BoxError> {
     let listener = tokio::net::TcpListener::bind(http_addr).await?;
     log::info!("serving \"{pg_uri}\" on {http_addr}");
     axum::serve(listener, app)
+      // TODO long script can block shutdown (apply timeout?)
       .with_graceful_shutdown(on_sigint_or_sigterm())
       .await
   })?;

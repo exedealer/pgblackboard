@@ -108,8 +108,8 @@ impl Connection {
 
     let mut conn = Self {
       stream: TcpStream::connect((host, port)).await?,
-      txbuf: VecDeque::with_capacity(4096),
-      rxbuf: Vec::with_capacity(4096),
+      txbuf: VecDeque::with_capacity(8 * 1024),
+      rxbuf: Vec::with_capacity(8 * 1024),
       rxbuf_consumed: 0,
       backend_key_data: None,
     };
@@ -286,6 +286,7 @@ impl Connection {
   // pub async fn recv_message(&mut self) -> Result<BackendMessage<'_>, Error> {
     while self.is_drained() {
       self.do_io().await?;
+      // TODO use incomplete message length to reallocate enough memory;
     }
 
     // нам здесь нужен непрерывный буфер, поэтому vecdeque не пойдет

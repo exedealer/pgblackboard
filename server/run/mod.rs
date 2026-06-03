@@ -19,6 +19,7 @@ pub struct ApiWakeParams {
   id: String,
 }
 
+// TODO rename api_resume, api_ack
 pub async fn api_wake(
   axum::extract::State(notifier): axum::extract::State<Notifier>,
   axum::extract::Query(ApiWakeParams { id }): axum::extract::Query<ApiWakeParams>,
@@ -61,13 +62,11 @@ pub async fn api_run(
     wake_id,
     notifier,
     tx: tx.clone(),
-    buf: BytesMut::with_capacity(8 * 1024),
-    is_suspended: false,
+    buf: BytesMut::with_capacity(16 * 1024),
   };
 
   let pgctor = pgctor
     // .with(c"statement_timeout", c"1h")
-    .with(c"client_min_messages", c"NOTICE") // TODO no override pg_uri
     .with(c"timezone", tz) // TODO should not fail if invalid timezone
     .with(c"database", db);
 
@@ -152,9 +151,10 @@ async fn api_run_inner(
   // write!(resp_buf, "[\"db\", \"{db_json}\"]\n").unwrap();
 
   let mut enrich_rowdescr_stmt_prepared = false;
-  let mut rowdescr = String::with_capacity(1024);
+  let mut rowdescr = String::with_capacity(8 * 1024);
 
   let mut n_bytes_sent = 0;
+  let mut n_rows_written = 0;
   let mut no_stmt_emitted = true;
   let mut stmt_pos_utf16;
 
@@ -174,7 +174,6 @@ async fn api_run_inner(
     script.split_off(..pos).filter(|stmt| !stmt.is_empty())
   });
   for stmt in statements {
-
     log::debug!("executing statement \"{}\"", stmt.escape_ascii());
 
     let stmt = pg::NZStr::try_from(stmt)
@@ -217,11 +216,6 @@ async fn api_run_inner(
         Ok(pg::CloseComplete) => break rowdescr.as_bytes(),
         Ok(_) => {}
         Err(err) => return Err(expose_dberror(err)),
-        // Err(ref err) if let Some(dberr) = err.as_dberror() => {
-        //   msgw.write_dberror_with_pos(&dberr, stmt_str, stmt_pos);
-        //   return Ok(()); // TODO log error
-        // }
-        // Err(err) => return Err(err.into()),
       }
     };
 
@@ -239,7 +233,7 @@ async fn api_run_inner(
 
       pgconn.send_bind_bin(ENRICH_ROWDESCR_STNAME, &[Some(rowdescr)]);
       pgconn.send_execute(); // TODO limit 1
-      if no_stmt_emitted  {
+      if no_stmt_emitted {
         // The first statement may be non-transactional
         // and may rely on being executed at the beginning of a implicit transaction,
         // therefore we should complete the transaction
@@ -272,25 +266,21 @@ async fn api_run_inner(
     no_stmt_emitted = false;
 
     loop {
+      // TODO fix hardcoded limits,  max_page_bytes, max_page_rows, GUC? querystring?
+      if n_bytes_sent + msgw.len() >= 5 * 1024 * 1024 // 5Mib
+        || n_rows_written >= 1000_u32
+      {
+        log::debug!("suspended on page boundary");
+        // TODO better name for traffic_limit_exceeded, there is a per page limit
+        msgw.flush(Some("traffic_limit_exceeded")).await;
+        n_bytes_sent = 0;
+        n_rows_written = 0;
+      }
 
       // TODO consider FutureExt::now_or_never instead of pgconn.is_drained()
-
-      // TODO n_bytes_rem, n_rows_rem
-      //    if n_bytes_rem <= 0 || n_rows_rem <= 0 then suspend.
-      //    rearm n_bytes_rem and n_rows_rem after wake
-
       if pgconn.is_drained() && msgw.len() > 0 {
         n_bytes_sent += msgw.len();
-
-        if n_bytes_sent > 100 * 1024 { // TODO fix hardcode
-          n_bytes_sent = 0;
-          // TODO better name for traffic_limit_exceeded:
-          // there is a per page limit
-          log::debug!("suspended traffic_limit_exceeded");
-          msgw.suspend("traffic_limit_exceeded");
-        }
-
-        msgw.flush().await;
+        msgw.flush(None).await;
       }
 
       let heartbeat_interval = std::time::Duration::from_secs(10); // TODO fix hardcode
@@ -301,7 +291,10 @@ async fn api_run_inner(
       };
 
       match msg_res.map_err(expose_dberror)? {
-        pg::DataRow(row) => msgw.write_row(row),
+        pg::DataRow(row) => {
+          msgw.write_row(row);
+          n_rows_written += 1;
+        }
         pg::CopyData(_data) => {
           // prefer not rely on CopyData contains exact one row
           // TODO should open separate channel,
@@ -371,8 +364,7 @@ async fn api_run_inner(
   // Need to somehow determine whether the transaction is explicit or not.
   if has_changes {
     log::debug!("suspended idle_in_transaction");
-    msgw.suspend("idle_in_transaction");
-    msgw.flush().await;
+    msgw.flush(Some("idle_in_transaction")).await;
   }
 
   pgconn.send_sync();
@@ -385,8 +377,6 @@ async fn api_run_inner(
       Err(err) => return Err(expose_dberror(err)),
     }
   }
-
-  // TODO emit "succeeded" message? so client know that task did no panic
 
   Ok(())
 }
@@ -403,7 +393,6 @@ struct MessageWriter {
   buf: BytesMut,
   tx: mpsc::Sender<Bytes>,
   wake_id: u128,
-  is_suspended: bool,
   notifier: Notifier,
 }
 
@@ -477,37 +466,29 @@ impl MessageWriter {
     self.buf.len()
   }
 
-  fn suspend(&mut self, reason: &str) {
-    let reason = json_escape(reason);
-    let wake_id = self.wake_id;
-    // TODO suspended -> wait, pause, hold (noun) but PortalSuspended use "suspended"
-    write!(self.buf, "[\"suspended\", {{\
-      \"reason\": \"{reason}\",\
-      \"wake_id\": \"{wake_id:032x}\"\
-    }}]\n").unwrap();
-    self.is_suspended = true;
-  }
-
-  async fn flush(&mut self) {
-    if !self.buf.is_empty() {
-      // use .reserve() so we can safely mutate self.buf after `await`;
-      // we don't need cancellation safety right now, but keep it just in case.
-      // TODO timeout?. how axum/hyper handles physicaly broken connection?
-      let Ok(permit) = self.tx.reserve().await else {
-        // let tx.closed() win and pgconn.cancel() called
-        let () = std::future::pending().await;
-        unreachable!();
-      };
-      // TODO ensure resp_buf allocation is reusing
-      // log::debug!("resp_buf ptr {:p}", resp_buf.as_ptr());
-      let chunk = self.buf.split().freeze();
-      permit.send(chunk);
+  async fn flush(&mut self, suspend_reason: Option<&str>) {
+    // use .reserve() so we can safely mutate self.buf after `await`;
+    // we don't need cancellation safety right now, but keep it just in case.
+    // TODO timeout?. how axum/hyper handles physicaly broken connection?
+    let Ok(permit) = self.tx.reserve().await else {
+      // let tx.closed() win and pgconn.cancel() called
+      let () = std::future::pending().await;
+      unreachable!();
+    };
+    if let Some(suspend_reason) = suspend_reason {
+      let suspend_reason = json_escape(suspend_reason);
+      let wake_id = self.wake_id;
+      write!(self.buf, "[\"suspended\", {{\
+        \"reason\": \"{suspend_reason}\",\
+        \"wake_id\": \"{wake_id:032x}\"\
+      }}]\n").unwrap();
     }
-    if self.is_suspended {
-      self.is_suspended = false;
-      // TODO there is a window when client can already receive
-      // wake_id and did /api/wake request, but we are not subscribed to notifications.
-      // Is issue stil actual after we changed sender.send() to sender.reserve()?
+    if !self.buf.is_empty() { // not final
+      let resp_chunk = self.buf.split().freeze();
+      permit.send(resp_chunk);
+    }
+    if suspend_reason.is_some() {
+      // TODO we should subscribe to notifier before emit "suspended",
       self.notifier.notified(self.wake_id).await;
     }
   }
