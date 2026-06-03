@@ -1,4 +1,5 @@
-use std::{ffi::CStr, fmt::Debug};
+use std::ffi::CStr;
+use std::fmt::Debug;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -51,17 +52,6 @@ pub enum BackendMessage<'a> {
     payload: &'a CStr,
   },
 }
-
-// impl<'a> BackendMessage<'a> {
-//   pub fn is_command_complete(&self) -> Option<&'a CStr> {
-//     match self {
-//       Self::CommandComplete { tag } => Some(tag),
-//       Self::EmptyQueryResponse => Some(c"EMPTY QUERY"),
-//       Self::PortalSuspended => Some(c"PORTAL SUSPENDED"),
-//       _ => None,
-//     }
-//   }
-// }
 
 #[derive(Debug)]
 pub enum Error {
