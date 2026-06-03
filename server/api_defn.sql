@@ -151,6 +151,7 @@ select concat_ws(e'\n'
   , format('ALTER TABLE %s D_ROP COLUMN %I;', attrelid::regclass, attname)
   , ''
   , '*/'
+  , ''
 )
 from pg_attribute
 where ('column', attrelid, attnum::text) = ($1, $2, $3)
@@ -171,6 +172,7 @@ select concat_ws(e'\n'
     , pg_get_constraintdef(oid)
     , ''
   )
+  , ''
 )
 from pg_constraint
 where ('constraint', oid) = ($1, $2)
