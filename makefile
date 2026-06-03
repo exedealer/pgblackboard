@@ -9,13 +9,13 @@ export COMPOSE_BAKE=true
 up:
 	docker compose up --build --watch --menu=false dev pg18
 
-.PHONY: up10
-up10:
+.PHONY: up-10
+up-10:
 	docker compose up --build --watch --menu=false dev pg10
 
-.PHONY: produp
-produp:
-	docker compose up --build --menu=false prod pg18
+.PHONY: up-rel
+up-rel:
+	docker compose up --build --menu=false pgbb pg18
 
 .PHONY: devcon
 devcon:

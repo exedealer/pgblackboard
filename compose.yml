@@ -1,31 +1,34 @@
 name: pgblackboard
 services:
 
+  pgbb:
+    build: .
+    ports: ['7890:7890'] # host:container
+    read_only: true
+    command: [pgbb, 'postgres://postgres:5432']
+    # deploy:
+    #   resources:
+    #     limits:
+    #       memory: 10M
+
   dev:
     build: { context: '.', target: dev }
-    ports: [7890:7890]
+    ports: ['7890:7890'] # host:container
     tty: true
+    volumes: [.:/app]
     command: [cargo, run, --
       , '--verbosity=debug'
       , 'postgres://postgres:5432?application_name=pgbb-dev']
-    volumes: [.:/app]
     develop:
       watch:
         - { path: dockerfile, action: rebuild }
         - { path: ./server, action: restart }
-    # deploy:
-    #   resources:
-    #     limits:
-    #       memory: 20M
-
-  prod:
-    build: .
-    ports: [7890:7890]
-    read_only: true
-    command: [pgbb, 'postgres://postgres:5432?application_name=pgbb-prod']
 
   pg18:
     image: kagiskz/postgres:18.1-20251218
+    command: [postgres
+      , -c, log_connections=all
+      , -c, log_disconnections=on]
     networks:
       default:
         aliases:
