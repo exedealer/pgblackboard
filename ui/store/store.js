@@ -738,4 +738,5 @@ function * sunflower(offset = 0) {
     yield (offset + i * golden_angle) % 360;
   }
   // TODO fix bad contrast when 245 (deep blue) on black bg
+  // try OKLCH
 }
