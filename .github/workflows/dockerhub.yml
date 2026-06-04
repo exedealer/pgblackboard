@@ -35,8 +35,8 @@ jobs:
           push: true
           # build-args: APP_VERSION=${{ github.sha }}
           tags: |
-            exedealer/pgblackboard:v3
             exedealer/pgblackboard:latest
+            exedealer/pgblackboard:v4
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.repositoryUrl }}
