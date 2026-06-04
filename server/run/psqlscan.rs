@@ -2,19 +2,9 @@
 
 /// Returns the number of bytes consumed by the first SQL statement in `sql`,
 /// including the terminating `;` and any trailing whitespace/comments after it.
-///
 /// If there is no `;` the full input length is returned (unterminated statement).
-///
-/// Iterate over all statements:
-/// ```
-/// let mut rest = sql;
-/// while !rest.is_empty() {
-///   let n = split_statements(rest);
-///   let stmt = &rest[..n];
-///   rest = &rest[n..];
-/// }
-/// ```
-pub fn split_statements(sql: &[u8]) -> usize {
+pub fn statement_boundary(sql: &[u8]) -> usize {
+  // https://github.com/postgres/postgres/blob/REL_18_4/src/fe_utils/psqlscan.l
   let mut s = sql;
   let mut paren_depth: i32 = 0;
   let mut begin_depth: i32 = 0;
@@ -62,9 +52,9 @@ pub fn split_statements(sql: &[u8]) -> usize {
       // ── U&'...' unicode string — '' escape only, no backslash ────────
       [b'u' | b'U', b'&', b'\'', tail @ ..] => { s = tail; scan_squoted(&mut s, false); }
       // ── E'...' N'...' — backslash escapes ───────────────────────────
-      [b'e' | b'E' | b'n' | b'N', b'\'', tail @ ..] => { s = tail; scan_squoted(&mut s, true); }
+      [b'e' | b'E', b'\'', tail @ ..] => { s = tail; scan_squoted(&mut s, true); }
       // ── '...' ────────────────────────────────────────────────────────
-      [b'\'', tail @ ..] => { s = tail; scan_squoted(&mut s, true); }
+      [b'\'', tail @ ..] => { s = tail; scan_squoted(&mut s, false); }
       // ── "..." double-quoted identifier ───────────────────────────────
       [b'"', tail @ ..] => { s = tail; scan_dquoted(&mut s); }
       // ── parentheses ──────────────────────────────────────────────────
@@ -243,112 +233,138 @@ fn track_begin_end(
 mod tests {
   use super::*;
 
-  fn split_all(sql: &[u8]) -> Vec<&[u8]> {
-    let mut rest = sql;
-    let mut out = Vec::new();
-    while !rest.is_empty() {
-      let n = split_statements(rest);
-      out.push(&rest[..n]);
-      rest = &rest[n..];
-    }
-    out
-  }
-
-  fn strs(sql: &[u8]) -> Vec<&str> {
-    split_all(sql).into_iter()
-      .map(|s| std::str::from_utf8(s).unwrap().trim())
-      .collect()
-  }
-
   #[test]
   fn basic() {
-    assert_eq!(strs(b"SELECT 1; SELECT 2;"), ["SELECT 1;", "SELECT 2;"]);
+    let sql = br"SELECT 1; SELECT 2;";
+    assert_eq!(statement_boundary(sql), 10);
   }
 
   #[test]
   fn no_trailing_semicolon() {
-    assert_eq!(strs(b"SELECT 1; SELECT 2"), ["SELECT 1;", "SELECT 2"]);
-  }
-
-  #[test]
-  fn semicolon_in_string() {
-    assert_eq!(strs(b"SELECT 'a;b'; SELECT 2;"), ["SELECT 'a;b';", "SELECT 2;"]);
+    let sql = br"SELECT 1";
+    assert_eq!(statement_boundary(sql), sql.len());
   }
 
   #[test]
   fn paren_depth() {
-    assert_eq!(strs(b"SELECT (1; 2); SELECT 3;"), ["SELECT (1; 2);", "SELECT 3;"]);
+    let sql = br"SELECT (1; 2); _";
+    assert_eq!(statement_boundary(sql), sql.len() - 1);
+  }
+
+  #[test]
+  fn string() {
+    let sql = br"SELECT 'hello;world\'; _";
+    assert_eq!(statement_boundary(sql), sql.len() - 1);
+  }
+
+  #[test]
+  fn e_string() {
+    let sql = br"SELECT E'hello\';world'; _";
+    assert_eq!(statement_boundary(sql), sql.len() - 1);
+  }
+
+  #[test]
+  fn e_string_continuation() {
+    let sql = br"SELECT e'hello'
+      'world\';'; _";
+    assert_eq!(statement_boundary(sql), sql.len() - 1);
+  }
+
+  #[test]
+  fn n_string() {
+    let sql = br"SELECT n';\'; _";
+    assert_eq!(statement_boundary(sql), sql.len() - 1);
+  }
+
+  #[test]
+  fn n_string_continuation() {
+    let sql = br"SELECT n'hello'
+      '\'; _";
+    assert_eq!(statement_boundary(sql), sql.len() - 1);
+  }
+
+    #[test]
+  fn u_string() {
+    let sql = br"SELECT u&';\'; _";
+    assert_eq!(statement_boundary(sql), sql.len() - 1);
+  }
+
+  #[test]
+  fn u_string_continuation() {
+    let sql = br"SELECT u'hello'
+      '\'; _";
+    assert_eq!(statement_boundary(sql), sql.len() - 1);
   }
 
   #[test]
   fn double_quoted_identifier() {
-    assert_eq!(strs(br#"SELECT "a;b"; SELECT 2;"#), [r#"SELECT "a;b";"#, "SELECT 2;"]);
+    let sql = br#"SELECT "a;b"; _"#;
+    assert_eq!(statement_boundary(sql), sql.len() - 1);
   }
 
   #[test]
-  fn dollar_quote_simple() {
-    let sql = b"CREATE FUNCTION f() RETURNS void AS $$ BEGIN NULL; END $$ LANGUAGE plpgsql; SELECT 1;";
-    let parts = strs(sql);
-    assert_eq!(parts.len(), 2);
-    assert!(parts[0].starts_with("CREATE FUNCTION"));
-    assert_eq!(parts[1], "SELECT 1;");
+  fn dollar_quote_empty_tag() {
+    let sql = br"SELECT $$a;b\$$; _";
+    assert_eq!(statement_boundary(sql), sql.len() - 1);
   }
 
   #[test]
-  fn begin_end_block() {
-    let sql = b"CREATE OR REPLACE FUNCTION f() RETURNS void AS $body$ \
-          BEGIN UPDATE t SET x=1; END $body$ LANGUAGE plpgsql; SELECT 1;";
-    let parts = strs(sql);
-    assert_eq!(parts.len(), 2, "{parts:?}");
-    assert!(parts[0].starts_with("CREATE"));
-    assert_eq!(parts[1], "SELECT 1;");
+  fn dollar_quote() {
+    let sql = br"SELECT $tag_$a;b\$tag_$; _";
+    assert_eq!(statement_boundary(sql), sql.len() - 1);
   }
 
   #[test]
-  fn trailing_comment_consumed() {
-    let sql = b"SELECT 1; -- comment\nSELECT 2;";
-    let parts = split_all(sql);
-    assert_eq!(parts.len(), 2);
-    assert!(parts[0].ends_with(b"-- comment\n"));
-    assert_eq!(parts[1], b"SELECT 2;");
+  fn parameter() {
+    let sql = br"SELECT $1; _";
+    assert_eq!(statement_boundary(sql), sql.len() - 1);
   }
 
   #[test]
-  fn trailing_block_comment_consumed() {
-    let sql = b"SELECT 1; /* c */ SELECT 2;";
-    let parts = split_all(sql);
-    assert_eq!(parts[0], b"SELECT 1; /* c */ ");
-    assert_eq!(parts[1], b"SELECT 2;");
+  fn line_comment() {
+    let sql = br"-- ;
+      SELECT 1; _";
+    assert_eq!(statement_boundary(sql), sql.len() - 1);
   }
 
   #[test]
-  fn block_comment_nested() {
-    assert_eq!(strs(b"SELECT /* a /* b */ c */ 1; SELECT 2;"),
-           ["SELECT /* a /* b */ c */ 1;", "SELECT 2;"]);
+  fn block_comment() {
+    let sql = br"/* /* */ ; */ SELECT 1; _";
+    assert_eq!(statement_boundary(sql), sql.len() - 1);
   }
 
   #[test]
-  fn e_prefix_string() {
-    assert_eq!(strs(br"SELECT E'a\tb'; SELECT 2;"), [r"SELECT E'a\tb';", "SELECT 2;"]);
+  fn begin_atomic() {
+    let sql = br"
+      create or replace function hello(lang text)
+      returns text
+      begin atomic;
+        select case lang
+          when 'fr' then 'bonjour;'
+          else $$hello;$$
+        end;
+      end;
+      _";
+    assert_eq!(statement_boundary(sql), sql.len() - 1);
   }
 
   #[test]
-  fn string_continuation() {
-    let sql = b"SELECT 'hello '\n'world'; SELECT 2;";
-    let parts = strs(sql);
-    assert_eq!(parts.len(), 2);
-    assert!(parts[0].contains("world"));
+  fn consume_trailing_whitespace() {
+    // Consume trailing comments so the next statement starts with an actual command.
+    // This way, if the next statement fails without a position field,
+    // the resulting position will point to the beginning of the actual command
+    // rather than the leading comment.
+    let sql = br"
+      SELECT 1;
+      -- line comment
+      /* block comment */
+
+      _";
+    assert_eq!(statement_boundary(sql), sql.len() - 1);
   }
 
   #[test]
   fn empty_input() {
-    assert_eq!(split_statements(b""), 0);
-  }
-
-  #[test]
-  fn trailing_ws_consumed() {
-    let sql = b"SELECT 1;   SELECT 2;";
-    let n = split_statements(sql);
-    assert_eq!(&sql[n..], b"SELECT 2;");
+    assert_eq!(statement_boundary(b""), 0);
   }
 }

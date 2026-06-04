@@ -12,14 +12,14 @@ use std::iter;
 use std::ffi::{ CStr, CString };
 
 use crate::{ pg, AppError };
-use psqlscan::split_statements;
+use psqlscan::statement_boundary;
 
 #[derive(Deserialize)]
 pub struct ApiWakeParams {
   id: String,
 }
 
-// TODO rename api_resume, api_ack
+// TODO rename api_resume, api_ack, api_scroll
 pub async fn api_wake(
   axum::extract::State(notifier): axum::extract::State<Notifier>,
   axum::extract::Query(ApiWakeParams { id }): axum::extract::Query<ApiWakeParams>,
@@ -45,7 +45,12 @@ pub async fn api_run(
   axum::extract::State(notifier): axum::extract::State<Notifier>,
   axum::extract::Extension(pgctor): axum::extract::Extension<pg::Connector>,
   axum::extract::Query(ApiRunParams { db, tz }): axum::extract::Query<ApiRunParams>,
-  script: Bytes,
+  // TODO how to accept large sql dump?
+  // - separate request for duplex streaming
+  // - split into chunks (or statements) on client and do request per chunk.
+  //    This will help bypass the default nginx request size limit.
+  //    However, we may run into the request rate limit.
+  script: Bytes, // TODO to_bytes(body, 10Mib) https://docs.rs/axum/latest/axum/body/fn.to_bytes.html
 ) -> Result<axum::response::Response, AppError> {
 
   // TODO session bound, so user can wake only own tasks, session_id + pid
@@ -166,13 +171,15 @@ async fn api_run_inner(
     trimmed
   };
 
-  // TODO how to accept large sql?
-  //  - separate request per statement, split on client.
-  //  are we going to edit large sql in browser?
+
   let statements = std::iter::from_fn(|| {
-    let pos = split_statements(script);
-    script.split_off(..pos).filter(|stmt| !stmt.is_empty())
+    let pos = statement_boundary(script);
+    let stmt = script.split_off(..pos).expect(
+      "statement boundary should be within script"
+    );
+    Some(stmt).filter(|s| !s.is_empty())
   });
+
   for stmt in statements {
     log::debug!("executing statement \"{}\"", stmt.escape_ascii());
 
