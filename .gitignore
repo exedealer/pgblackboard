@@ -3,7 +3,5 @@
 !.dockerignore
 !.editorconfig
 !.gitignore
-!.rustfmt.toml
 
-dist
 /target

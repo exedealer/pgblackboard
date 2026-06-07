@@ -1,7 +1,7 @@
 use openssl::base64;
-use openssl::rand::rand_bytes;
-use openssl::symm::{decrypt_aead, encrypt_aead, Cipher};
 use openssl::error::ErrorStack;
+use openssl::rand::rand_bytes;
+use openssl::symm::{Cipher, decrypt_aead, encrypt_aead};
 
 pub struct Authenticator {
   secret: [u8; 32],
@@ -17,7 +17,11 @@ impl Authenticator {
   }
 
   // TODO add expiration?
-  pub fn issue(&self, user: &[u8], password: &[u8]) -> Result<String, ErrorStack> {
+  pub fn issue(
+    &self,
+    user: &[u8],
+    password: &[u8],
+  ) -> Result<String, ErrorStack> {
     let mut iv = [0u8; 12];
     rand_bytes(&mut iv)?;
 
@@ -50,7 +54,8 @@ impl Authenticator {
       user, // AAD
       ciphertext,
       tag,
-    ).ok()?;
+    )
+    .ok()?;
 
     Some(password)
   }

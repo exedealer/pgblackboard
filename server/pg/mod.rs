@@ -1,24 +1,23 @@
-mod encode;
 mod decode;
-mod scram;
+mod encode;
 mod md5;
+mod scram;
 
-use tokio::net::{ TcpStream };
-use tokio::io::{ AsyncReadExt, AsyncWriteExt };
-use tokio::io;
+use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
 
 use std::collections::VecDeque;
-use std::ffi::{ CStr, CString };
+use std::ffi::{CStr, CString};
 
-use encode::*;
 use decode::parse_message;
+use encode::*;
 
-pub use encode::NZStr;
-pub use decode::DbError;
 pub use decode::BackendMessage;
+pub use decode::BackendMessage::*;
+pub use decode::DbError;
 pub use decode::Field;
 pub use decode::Row;
-pub use decode::BackendMessage::*;
+pub use encode::NZStr;
 // pub use encode::ContainsZeroError;
 
 // open enum https://github.com/rust-lang/rfcs/pull/3894
@@ -57,7 +56,8 @@ impl Connector {
   // the only case is timezone in api_run (dyn options)
   // pub fn with_default() {}
 
-  pub fn with(mut self,
+  pub fn with(
+    mut self,
     opt: impl Into<CString>,
     val: impl Into<CString>,
   ) -> Self {
@@ -72,7 +72,8 @@ impl Connector {
     self
   }
 
-  pub fn with_credentials(mut self,
+  pub fn with_credentials(
+    mut self,
     user: impl Into<CString>,
     password: impl Into<Vec<u8>>,
   ) -> Self {
@@ -85,8 +86,7 @@ impl Connector {
   }
 
   fn user(&self) -> Option<&[u8]> {
-    self.options.iter().find(|(k, _)| k == c"user")
-      .map(|(_, v)| v.as_bytes())
+    self.options.iter().find(|(k, _)| k == c"user").map(|(_, v)| v.as_bytes())
   }
 }
 
@@ -99,7 +99,6 @@ pub struct Connection {
 }
 
 impl Connection {
-
   pub async fn connect(connector: &Connector) -> Result<Self, ConnectError> {
     let host = connector.host.as_str();
     let port = connector.port;
@@ -114,7 +113,9 @@ impl Connection {
       backend_key_data: None,
     };
 
-    let options = connector.options.iter()
+    let options = connector
+      .options
+      .iter()
       .map(|(k, v)| (k.as_c_str().into(), v.as_c_str().into()))
       .collect::<Vec<_>>() // TODO no alloc
       .into_boxed_slice();
@@ -141,9 +142,13 @@ impl Connection {
     }
   }
 
-  async fn auth(&mut self, user: &[u8], password: &[u8]) -> Result<(), ConnectError> {
+  async fn auth(
+    &mut self,
+    user: &[u8],
+    password: &[u8],
+  ) -> Result<(), ConnectError> {
     match self.recv_message().await? {
-      self::AuthenticationOk => {}, // trusted
+      self::AuthenticationOk => {} // trusted
       self::AuthenticationCleartextPassword => {
         self.auth_pwd(password).await?;
       }
@@ -156,17 +161,20 @@ impl Connection {
         self.auth_sasl(password).await?;
         // }
       }
-      | self::AuthenticationKerberosV5
+      self::AuthenticationKerberosV5
       | self::AuthenticationSCMCredential
       | self::AuthenticationGSS
-      | self::AuthenticationSSPI => return Err("unsupported authentication method".into()),
+      | self::AuthenticationSSPI => {
+        return Err("unsupported authentication method".into());
+      }
       _unexp => return Err("unexpected message received".into()),
     }
     Ok(())
   }
 
   async fn auth_pwd(&mut self, password: &[u8]) -> Result<(), ConnectError> {
-    let pwd_nz = password.try_into()
+    let pwd_nz = password
+      .try_into()
       // TODO proper error normalization
       .map_err(|_| "invalid password")?;
     write_password(&mut self.txbuf, pwd_nz);
@@ -179,15 +187,20 @@ impl Connection {
   async fn auth_sasl(&mut self, password: &[u8]) -> Result<(), ConnectError> {
     let mut scram_sha256 = scram::ScramSha256::new();
     let data = scram_sha256.start("")?;
-    write_sasl_initial_resp(&mut self.txbuf, c"SCRAM-SHA-256".into(), Some(data.as_slice()));
-
-    let AuthenticationSASLContinue(server_first) = self.recv_message().await? else {
+    write_sasl_initial_resp(
+      &mut self.txbuf,
+      c"SCRAM-SHA-256".into(),
+      Some(data.as_slice()),
+    );
+    use AuthenticationSASLContinue as SASLContinue;
+    let SASLContinue(server_first) = self.recv_message().await? else {
       return Err("AuthenticationSASLContinue expected".into());
     };
     let data = scram_sha256.update(server_first, password)?;
     write_sasl_resp(&mut self.txbuf, data.as_ref());
 
-    let AuthenticationSASLFinal(server_final) = self.recv_message().await? else {
+    use AuthenticationSASLFinal as SASLFinal;
+    let SASLFinal(server_final) = self.recv_message().await? else {
       return Err("AuthenticationSASLFinal expected".into());
     };
     scram_sha256.finish(server_final)?;
@@ -200,7 +213,12 @@ impl Connection {
 
   // TODO stmt zero-copy
   // Bytes.chain + write_buf (utilizes vectored io)
-  pub fn send_parse(&mut self, stmt_name: &CStr, param_types: &[u32], stmt: NZStr<'_>) {
+  pub fn send_parse(
+    &mut self,
+    stmt_name: &CStr,
+    param_types: &[u32],
+    stmt: NZStr<'_>,
+  ) {
     write_parse(&mut self.txbuf, stmt_name.into(), param_types, stmt);
   }
 
@@ -212,8 +230,14 @@ impl Connection {
     let portal_name = c"".into();
     let out_formats = &[];
     let param_formats = &[];
-    write_bind(&mut self.txbuf, stmt_name.into(), portal_name,
-      out_formats, param_formats, params);
+    write_bind(
+      &mut self.txbuf,
+      stmt_name.into(),
+      portal_name,
+      out_formats,
+      param_formats,
+      params,
+    );
   }
 
   // TODO dry
@@ -221,8 +245,14 @@ impl Connection {
     let portal_name = c"".into();
     let out_formats = &[1];
     let param_formats = &[1];
-    write_bind(&mut self.txbuf, stmt_name.into(), portal_name,
-      out_formats, param_formats, params);
+    write_bind(
+      &mut self.txbuf,
+      stmt_name.into(),
+      portal_name,
+      out_formats,
+      param_formats,
+      params,
+    );
   }
 
   pub fn send_execute(&mut self) {
@@ -257,6 +287,8 @@ impl Connection {
     self.rxbuf.drain(..self.rxbuf_consumed);
     self.rxbuf_consumed = 0;
 
+    // TODO use incomplete message length to reallocate enough memory;
+
     let (mut rx, mut tx) = self.stream.split();
     let io_n_bytes = tokio::select! {
       res = rx.read_buf(&mut self.rxbuf) => res,
@@ -283,15 +315,14 @@ impl Connection {
   // because we should not expose auth/startup messages.
   // Seems that we also should not expose ErrorResponse option
   pub async fn recv_message(&mut self) -> io::Result<BackendMessage<'_>> {
-  // pub async fn recv_message(&mut self) -> Result<BackendMessage<'_>, Error> {
     while self.is_drained() {
       self.do_io().await?;
-      // TODO use incomplete message length to reallocate enough memory;
     }
 
     // нам здесь нужен непрерывный буфер, поэтому vecdeque не пойдет
     let buf = &self.rxbuf[self.rxbuf_consumed..];
-    let (nparsed, msg) = parse_message(buf).map_err(|err| io::Error::other(err))?
+    let (nparsed, msg) = parse_message(buf)
+      .map_err(|err| io::Error::other(err))?
       .expect("rxbuf should be not drained"); // TODO no unwrap
     // TODO abort if ParameterStatus client_encoding != UTF8
     self.rxbuf_consumed += nparsed;
@@ -342,19 +373,17 @@ impl Connection {
   }
 }
 
+type BoxError = Box<dyn std::error::Error + Sync + Send + 'static>;
+
 #[derive(Debug)]
 pub struct ConnectError {
-  pub inner: Box<dyn std::error::Error + Sync + Send + 'static>,
+  pub inner: BoxError,
   is_authorized_: bool,
 }
 
 impl ConnectError {
-
-  fn new(err: impl Into<Box<dyn std::error::Error + Sync + Send + 'static>>) -> Self {
-    Self {
-      inner: err.into(),
-      is_authorized_: false,
-    }
+  fn new(err: impl Into<BoxError>) -> Self {
+    Self { inner: err.into(), is_authorized_: false }
   }
 
   fn into_authorized(mut self) -> Self {
@@ -370,7 +399,9 @@ impl ConnectError {
   /// 28P01 password authentication failed for user \"xxx\"
   pub fn is_bad_credentials(&self) -> bool {
     // TODO check nul byte rejection errors
-    self.as_dberror().map(|err| err.code())
+    self
+      .as_dberror()
+      .map(|err| err.code())
       .unwrap_or_default()
       .starts_with(b"28")
   }
@@ -396,21 +427,6 @@ impl std::fmt::Display for ConnectError {
     write!(f, "{}", self.inner)
   }
 }
-
-// impl std::fmt::Debug for Error {
-//   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//     write!(f, "{}", self)
-//   }
-// }
-
-// impl<E: Into<Box<dyn std::error::Error + Sync + Send + 'static>>> From<E> for Error {
-//   fn from(err: E) -> Self {
-//     Self {
-//       inner: err.into(),
-//       is_authorized_: false,
-//     }
-//   }
-// }
 
 impl From<DbError<'static>> for ConnectError {
   fn from(err: DbError<'static>) -> Self {

@@ -1,15 +1,7 @@
-// pub fn write_bad(out: &mut impl TxBuf) {
-//   out.put_u8(b'S');
-//   out.put_i32(-1);
-// }
-
-use std::ffi::{ CStr, FromBytesWithNulError };
+use std::ffi::{CStr, FromBytesWithNulError};
 
 // https://www.postgresql.org/docs/18/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-STARTUPMESSAGE
-pub fn write_startup(
-  out: &mut impl TxBuf,
-  options: &[(NZStr<'_>, NZStr<'_>)],
-) {
+pub fn write_startup(out: &mut impl TxBuf, options: &[(NZStr<'_>, NZStr<'_>)]) {
   out.put_frame(|out| {
     out.put_i16(3); // major version
     out.put_i16(0); // minor version
@@ -192,7 +184,9 @@ impl<'a> NZStr<'a> {
 
 impl<'a> std::ops::Deref for NZStr<'a> {
   type Target = [u8];
-  fn deref(&self) -> &Self::Target { self.0 }
+  fn deref(&self) -> &Self::Target {
+    self.0
+  }
 }
 
 impl<'a> TryFrom<&'a [u8]> for NZStr<'a> {
@@ -217,17 +211,24 @@ impl std::fmt::Display for ContainsZeroError {
   }
 }
 
-
 pub trait TxBuf {
   fn put(&mut self, val: &[u8]) -> usize;
   fn patch(&mut self, pos: usize, val: &[u8]);
 
-  fn put_i32(&mut self, val: i32) { self.put(&val.to_be_bytes()); }
+  fn put_i32(&mut self, val: i32) {
+    self.put(&val.to_be_bytes());
+  }
   // TODO put_oid?
-  fn put_u32(&mut self, val: u32) { self.put(&val.to_be_bytes()); }
-  fn put_i16(&mut self, val: i16) { self.put(&val.to_be_bytes()); }
+  fn put_u32(&mut self, val: u32) {
+    self.put(&val.to_be_bytes());
+  }
+  fn put_i16(&mut self, val: i16) {
+    self.put(&val.to_be_bytes());
+  }
   // fn put_u16(&mut self, val: u16) { self.put(&val.to_be_bytes()); }
-  fn put_u8(&mut self, val: u8) { self.put(&[val]);}
+  fn put_u8(&mut self, val: u8) {
+    self.put(&[val]);
+  }
 
   fn put_str(&mut self, val: NZStr<'_>) {
     self.put(&val);
@@ -243,7 +244,8 @@ pub trait TxBuf {
     let mut len: i32 = 0;
     let base = self.put(&len.to_be_bytes());
     put_body(self);
-    len = self.put(b"")
+    len = self
+      .put(b"")
       .checked_sub(base)
       .expect("outgoing postgres message length should not be negative")
       .try_into()
@@ -260,8 +262,10 @@ impl TxBuf for std::collections::VecDeque<u8> {
   }
 
   fn patch(&mut self, pos: usize, val: &[u8]) {
-    self.iter_mut()
+    self
+      .iter_mut()
       .skip(pos) // TODO ensure O(1)
-      .zip(val).for_each(|(d, s)| *d = *s);
+      .zip(val)
+      .for_each(|(d, s)| *d = *s);
   }
 }

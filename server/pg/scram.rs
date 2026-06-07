@@ -1,16 +1,14 @@
 use openssl::base64;
-use openssl::hash::{hash, MessageDigest};
+use openssl::error::ErrorStack;
+use openssl::hash::{MessageDigest, hash};
 use openssl::memcmp;
 use openssl::pkcs5::pbkdf2_hmac;
 use openssl::pkey::PKey;
 use openssl::rand::rand_bytes;
 use openssl::sign::Signer;
-use openssl::error::ErrorStack;
 
 // TODO mostly vibed, need rewrite
 // TODO see also deno-postgres https://github.com/denodrivers/postgres/blob/dd7df18fe2ef4da9f1ffa10006763420c89b4b52/connection/scram.ts#L160
-
-
 
 // ── Errors ────────────────────────────────────────────────────────────────────
 
@@ -72,10 +70,7 @@ impl ScramSha256 {
   // ── Step 1 ────────────────────────────────────────────────────────────────
 
   pub fn new() -> Self {
-    Self {
-      client_first_msg_bare: vec![],
-      expected_server_signature: vec![],
-    }
+    Self { client_first_msg_bare: vec![], expected_server_signature: vec![] }
   }
 
   /// Build the **client-first-message** and return `(state, message)`.
@@ -106,9 +101,9 @@ impl ScramSha256 {
   pub fn update(
     &mut self,
     server_first: &[u8],
-     // TODO normalization
-     // https://github.com/brianc/node-postgres/blob/f252870eba73c15449b57562e6698b5859e32095/packages/pg/lib/crypto/sasl.js#L21
-     // https://docs.rs/crate/stringprep/0.1.5/source/src/lib.rs#54
+    // TODO normalization
+    // https://github.com/brianc/node-postgres/blob/f252870eba73c15449b57562e6698b5859e32095/packages/pg/lib/crypto/sasl.js#L21
+    // https://docs.rs/crate/stringprep/0.1.5/source/src/lib.rs#54
     password: &[u8],
   ) -> Result<Vec<u8>, Error> {
     // ── Parse server-first-message: r=…,s=…,i=… ─────────────────────────
@@ -133,7 +128,7 @@ impl ScramSha256 {
     }
     // Nonce must begin with the client nonce we sent.
     let cnonce_end = snonce
-      .find(',')  // nonce itself never contains ','
+      .find(',') // nonce itself never contains ','
       .unwrap_or(snonce.len());
     let _cnonce_part = &snonce[..cnonce_end]; // optionally verify it matches
 
@@ -174,11 +169,8 @@ impl ScramSha256 {
     //   ClientSignature = HMAC-SHA256(StoredKey, AuthMessage)
     let client_sig = hmac_sha256(&stored_key, &auth_msg)?;
     //   ClientProof   = ClientKey XOR ClientSignature
-    let client_proof: Vec<u8> = client_key
-      .iter()
-      .zip(&client_sig)
-      .map(|(a, b)| a ^ b)
-      .collect();
+    let client_proof: Vec<u8> =
+      client_key.iter().zip(&client_sig).map(|(a, b)| a ^ b).collect();
 
     //   ServerKey     = HMAC-SHA256(SaltedPassword, "Server Key")
     let server_key = hmac_sha256(&salted_pwd, b"Server Key")?;
@@ -209,7 +201,11 @@ impl ScramSha256 {
     if let Some(err) = msg.strip_prefix("e=") {
       return Err(Error::InvalidServerMessage(
         // Leak the static str only for known errors; otherwise generic.
-        if err.contains("invalid-proof") { "invalid-proof" } else { "server error" },
+        if err.contains("invalid-proof") {
+          "invalid-proof"
+        } else {
+          "server error"
+        },
       ));
     }
 
@@ -227,7 +223,6 @@ impl ScramSha256 {
     }
   }
 }
-
 
 fn hmac_sha256(key: &[u8], data: &[u8]) -> Result<Vec<u8>, ErrorStack> {
   let pkey = PKey::hmac(key)?;

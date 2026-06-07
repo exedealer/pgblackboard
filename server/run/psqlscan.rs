@@ -14,7 +14,6 @@ fn scan_statement(sql: &mut &[u8]) {
   let mut idents_count = 0;
 
   *sql = loop {
-
     if checked_scan(sql, scan_line_comment)
       || checked_scan(sql, scan_block_comment)
       || checked_scan(sql, scan_double_quoted)
@@ -25,25 +24,24 @@ fn scan_statement(sql: &mut &[u8]) {
     }
 
     if let Some(ident) = scan_ident(sql) {
-  		/* https://github.com/postgres/postgres/blob/f5cc81719e6da4cbdb1f797c48b693e91018153a/src/fe_utils/psqlscan.l#L917
-			 * We need to track if we are inside a BEGIN .. END block
-			 * in a function definition, so that semicolons contained
-			 * therein don't terminate the whole statement.  Short of
-			 * writing a full parser here, the following heuristic
-			 * should work.  First, we track whether the beginning of
-			 * the statement matches CREATE [OR REPLACE]
-			 * {FUNCTION|PROCEDURE}
-			 */
-      let tracked: [&[u8]; _] = [
-        b"create", b"or", b"replace", b"function", b"procedure",
-      ];
+      // https://github.com/postgres/postgres/blob/f5cc81719e6da4cbdb1f797c48b693e91018153a/src/fe_utils/psqlscan.l#L917
+      // We need to track if we are inside a BEGIN .. END block
+      // in a function definition, so that semicolons contained
+      // therein don't terminate the whole statement.  Short of
+      // writing a full parser here, the following heuristic
+      // should work.  First, we track whether the beginning of
+      // the statement matches CREATE [OR REPLACE]
+      // {FUNCTION|PROCEDURE}
+      let tracked: [&[u8]; _] =
+        [b"create", b"or", b"replace", b"function", b"procedure"];
       if let Some(slot) = idents.get_mut(idents_count) {
         idents_count += 1;
         let key = ident[0].to_ascii_lowercase();
         *slot = tracked.contains(&ident).then_some(key).unwrap_or_default();
       }
 
-      let in_create_func = matches!(idents,
+      let in_create_func = matches!(
+        idents,
         | [b'c', b'f' | b'p', ..] // CREATE FUNCTION|PROCEDURE
         | [b'c', b'o', b'r', b'f' | b'p'] // CREATE OR REPLACE FUNCTION|PROCEDURE
       );
@@ -77,7 +75,8 @@ fn scan_statement(sql: &mut &[u8]) {
 
   while checked_scan(sql, scan_line_comment)
     || checked_scan(sql, scan_block_comment)
-    || checked_scan(sql, scan_whitespaces) {}
+    || checked_scan(sql, scan_whitespaces)
+  {}
 }
 
 fn checked_scan(s: &mut &[u8], scanner: fn(&mut &[u8])) -> bool {
@@ -87,7 +86,11 @@ fn checked_scan(s: &mut &[u8], scanner: fn(&mut &[u8])) -> bool {
 }
 
 fn scan_whitespaces(s: &mut &[u8]) {
-  while let [b'\n' | b'\r' | b'\t' | b'\x0b' | b'\x0c' | b'\x20', tail @ ..] = s {
+  while let [
+    b'\n' | b'\r' | b'\t' | b'\x0b' | b'\x0c' | b'\x20',
+    tail @ ..,
+  ] = s
+  {
     *s = tail;
   }
 }
@@ -105,8 +108,14 @@ fn scan_block_comment(s: &mut &[u8]) {
   let mut depth = 0_u32;
   loop {
     *s = match s {
-      [b'/', b'*', tail @ ..] => { depth += 1; tail }
-      [b'*', b'/', tail @ ..] if depth > 0 => { depth -= 1; tail }
+      [b'/', b'*', tail @ ..] => {
+        depth += 1;
+        tail
+      }
+      [b'*', b'/', tail @ ..] if depth > 0 => {
+        depth -= 1;
+        tail
+      }
       [_, tail @ ..] if depth > 0 => tail,
       _ => break,
     };
@@ -117,7 +126,10 @@ fn scan_double_quoted(s: &mut &[u8]) {
   let mut inside = false;
   loop {
     *s = match s {
-      [b'"', tail @ ..] => { inside = !inside; tail }
+      [b'"', tail @ ..] => {
+        inside = !inside;
+        tail
+      }
       [_, tail @ ..] if inside => tail,
       _ => return,
     };
@@ -168,7 +180,8 @@ fn scan_single_quoted(s: &mut &[u8]) {
 
 fn scan_dollar_quoted(s: &mut &[u8]) {
   let tag;
-  let is_dolq_cont = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b >= 0o200;
+  let is_dolq_cont =
+    |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b >= 0o200;
   (tag, *s) = match s {
     // empty tag $$
     [b'$', b'$', ..] => s.split_at(1 + 1),
@@ -198,8 +211,8 @@ fn scan_ident<'a>(s: &mut &'a [u8]) -> Option<&'a [u8]> {
   if !matches!(s, [b'a'..=b'z' | b'A'..=b'Z' | b'_' | 0x80.., ..]) {
     return None;
   }
-  let is_ident_cont = |b: u8| b.is_ascii_alphanumeric()
-    || b == b'_' || b == b'$' || b >= 0o200;
+  let is_ident_cont =
+    |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'$' || b >= 0o200;
   let end = s.iter().position(|&b| !is_ident_cont(b)).unwrap_or(s.len());
   let ident;
   (ident, *s) = s.split_at(end);
@@ -279,7 +292,7 @@ mod tests {
     assert_eq!(statement_boundary(sql), sql.len() - 1);
   }
 
-    #[test]
+  #[test]
   fn u_string() {
     let sql = br"SELECT u&';\'; _";
     assert_eq!(statement_boundary(sql), sql.len() - 1);
@@ -352,9 +365,10 @@ mod tests {
 
   #[test]
   fn consume_trailing_whitespace() {
-    // Consume trailing comments so the next statement starts with an actual command.
-    // This way, if the next statement fails without a position field,
-    // the resulting position will point to the beginning of the actual command
+    // Consume trailing comments so the next statement starts
+    // with an actual command. This way, if the next statement
+    // fails without a position field, the resulting position
+    // will point to the beginning of the actual command
     // rather than the leading comment.
     let sql = br"
       SELECT 1;

@@ -1,30 +1,29 @@
 mod psqlscan;
 
 use axum::BoxError;
+use bytes::{Bytes, BytesMut};
+use futures_util::stream;
 use openssl::rand::rand_bytes;
 use serde::Deserialize;
 use tokio::sync::mpsc;
-use futures_util::stream;
-use bytes::{ Bytes, BytesMut };
 
+use std::ffi::{CStr, CString};
 use std::fmt::Write;
 use std::iter;
-use std::ffi::{ CStr, CString };
 
-use crate::{ pg, AppError };
+use crate::{AppError, pg};
 use psqlscan::statement_boundary;
 
 #[derive(Deserialize)]
-pub struct ApiWakeParams {
+pub struct WakeParams {
   id: String,
 }
 
 // TODO rename api_resume, api_ack, api_scroll
 pub async fn api_wake(
   axum::extract::State(notifier): axum::extract::State<Notifier>,
-  axum::extract::Query(ApiWakeParams { id }): axum::extract::Query<ApiWakeParams>,
+  axum::extract::Query(WakeParams { id }): axum::extract::Query<WakeParams>,
 ) -> Result<axum::response::Response, AppError> {
-
   if let Ok(id) = u128::from_str_radix(&id, 16) {
     notifier.notify(id);
   }
@@ -34,9 +33,8 @@ pub async fn api_wake(
     .map_err(|err| err.into())
 }
 
-
 #[derive(Deserialize, Debug)]
-pub struct ApiRunParams {
+pub struct RunParams {
   pub db: CString,
   pub tz: CString,
 }
@@ -44,15 +42,14 @@ pub struct ApiRunParams {
 pub async fn api_run(
   axum::extract::State(notifier): axum::extract::State<Notifier>,
   axum::extract::Extension(pgctor): axum::extract::Extension<pg::Connector>,
-  axum::extract::Query(ApiRunParams { db, tz }): axum::extract::Query<ApiRunParams>,
+  axum::extract::Query(RunParams { db, tz }): axum::extract::Query<RunParams>,
   // TODO how to accept large sql dump?
   // - separate request for duplex streaming
   // - split into chunks (or statements) on client and do request per chunk.
   //    This will help bypass the default nginx request size limit.
   //    However, we may run into the request rate limit.
-  script: Bytes, // TODO to_bytes(body, 10Mib) https://docs.rs/axum/latest/axum/body/fn.to_bytes.html
+  script: Bytes,
 ) -> Result<axum::response::Response, AppError> {
-
   // TODO session bound, so user can wake only own tasks, session_id + pid
   // TODO rename job_id, task_id, run_id, script_id (should not use wake to not confuse with future wakers)
   let wake_id = {
@@ -126,10 +123,10 @@ pub async fn api_run(
 
   let s = stream::poll_fn(move |cx| {
     rx.poll_recv(cx).map(|chunk| match chunk {
-        Some(fin) if fin.is_empty() => None, // send final chunk `0\r\n\r\n`
-        Some(data) => Some(Ok(data)),
-        // TODO log error?
-        None => Some(Err("incompete response")), // drop connection
+      Some(fin) if fin.is_empty() => None, // send final chunk `0\r\n\r\n`
+      Some(data) => Some(Ok(data)),
+      // TODO log error?
+      None => Some(Err("incompete response")), // drop connection
     })
   });
   // TODO consider https://www.rfc-editor.org/rfc/rfc7464
@@ -149,7 +146,6 @@ async fn api_run_inner(
   msgw: &mut MessageWriter,
   script: &[u8],
 ) -> Result<(), BoxError> {
-
   // TODO parse \connect "database" here
   // But how to do run selection? whitespace padding? (actual current solution btw, because of statement position)
   // let db_json = json_escape_lossy(b"example");
@@ -170,7 +166,6 @@ async fn api_run_inner(
     stmt_pos_utf16 = script.len() - trimmed.len();
     trimmed
   };
-
 
   let statements = std::iter::from_fn(|| {
     let pos = statement_boundary(script);
@@ -232,8 +227,14 @@ async fn api_run_inner(
       // because there are also many other ways to break the things intentionally.
       const ENRICH_ROWDESCR_STNAME: &CStr = c"pgbb_enrich_rowdescr";
       if !enrich_rowdescr_stmt_prepared {
-        const ENRICH_ROWDESCR_SQL: pg::NZStr<'_> = pg::NZStr::from_bytes(include_bytes!("./enrich_rowdescr.sql")).unwrap();
-        pgconn.send_parse(ENRICH_ROWDESCR_STNAME, &[pg::JSON_OID], ENRICH_ROWDESCR_SQL);
+        const ENRICH_ROWDESCR_SQL: pg::NZStr<'_> =
+          pg::NZStr::from_bytes(include_bytes!("./enrich_rowdescr.sql"))
+            .unwrap();
+        pgconn.send_parse(
+          ENRICH_ROWDESCR_STNAME,
+          &[pg::JSON_OID],
+          ENRICH_ROWDESCR_SQL,
+        );
         enrich_rowdescr_stmt_prepared = true;
       }
 
@@ -258,7 +259,11 @@ async fn api_run_inner(
           Ok(pg::DataRow(row)) => row, // TODO assert only one DataRow?
           Ok(pg::CloseComplete | pg::ReadyForQuery { .. }) => break,
           Ok(_) => continue,
-          Err(err) => return Err(format!("failed to enrich row description: {err}").into()),
+          Err(err) => {
+            return Err(
+              format!("failed to enrich row description: {err}").into(),
+            );
+          }
         };
         // TODO do not flatten - error hiding
         let head_payload = row.into_iter().next().flatten().unwrap_or(b"null");
@@ -290,7 +295,9 @@ async fn api_run_inner(
       }
 
       let heartbeat_interval = std::time::Duration::from_secs(10); // TODO fix hardcode
-      let Ok(msg_res) = tokio::time::timeout(heartbeat_interval, pgconn.recv_message()).await else {
+      let msg_fut = pgconn.recv_message();
+      let msg_fut = tokio::time::timeout(heartbeat_interval, msg_fut);
+      let Ok(msg_res) = msg_fut.await else {
         // TODO should not count "alive" messages to n_bytes_sent?
         msgw.write_alive_if_drained();
         continue;
@@ -304,11 +311,11 @@ async fn api_run_inner(
         pg::CopyData(_data) => {
           // prefer not rely on CopyData contains exact one row
           // TODO should open separate channel,
-          //      should not stream copy output through message stream
-          //      because fetch gives no control over backpressure in js space
+          // should not stream copy output through message stream
+          // because fetch gives no control over backpressure in js space
           // TODO we can wrap mutliple copy outputs to tar/zip file
-          //      in case of multiple COPY queries.
-          //      but symmetry between COPY TO / COPY FROM will be broken
+          // in case of multiple COPY queries.
+          // but symmetry between COPY TO / COPY FROM will be broken
         }
         pg::CopyInResponse(..) => {
           pgconn.send_copy_fail();
@@ -344,14 +351,16 @@ async fn api_run_inner(
       //  but we dont need utf8 decoding for execution.
       //  We should return `null` position after invalid utf8
       .map_err(|_| "script must be valid UTF-8")?
-      .encode_utf16().count();
+      .encode_utf16()
+      .count();
   }
 
-  let mut has_changes = false;
-  pgconn.send_parse(c"", &[], c"\
+  let check_for_changes_query = c"\
     select null \
-    where pg_catalog.txid_current_if_assigned() is not null\
-  ".into());
+    where pg_catalog.txid_current_if_assigned() is not null"
+    .into();
+  let mut has_changes = false;
+  pgconn.send_parse(c"", &[], check_for_changes_query);
   pgconn.send_bind(c"", &[]);
   pgconn.send_execute();
   pgconn.send_close_portal();
@@ -361,7 +370,11 @@ async fn api_run_inner(
       Ok(pg::DataRow { .. }) => has_changes = true,
       Ok(pg::CloseComplete) => break has_changes,
       Ok(_) => {}
-      Err(err) => return Err(format!("failed to check for uncommited changes: {err}").into()),
+      Err(err) => {
+        return Err(
+          format!("failed to check for uncommited changes: {err}").into(),
+        );
+      }
     }
   };
 
@@ -403,9 +416,12 @@ struct MessageWriter {
 }
 
 impl MessageWriter {
-
-  fn write_start(&mut self, position_utf16: usize) {
-    write!(self.buf, "[\"start\", {{\"position_utf16\": {position_utf16}}}]\n").unwrap();
+  fn write_start(&mut self, pos_utf16: usize) {
+    write!(
+      self.buf,
+      "[\"start\", {{\"position_utf16\": {pos_utf16}}}]\n"
+    )
+    .unwrap();
   }
 
   fn write_head(&mut self, payload: &[u8]) {
@@ -484,12 +500,16 @@ impl MessageWriter {
     if let Some(suspend_reason) = suspend_reason {
       let suspend_reason = json_escape(suspend_reason);
       let wake_id = self.wake_id;
-      write!(self.buf, "[\"suspended\", {{\
+      write!(
+        self.buf,
+        "[\"suspended\", {{\
         \"reason\": \"{suspend_reason}\",\
-        \"wake_id\": \"{wake_id:032x}\"\
-      }}]\n").unwrap();
+        \"wake_id\": \"{wake_id:032x}\"}}]\n"
+      )
+      .unwrap();
     }
-    if !self.buf.is_empty() { // not final
+    if !self.buf.is_empty() {
+      // not final
       let resp_chunk = self.buf.split().freeze();
       permit.send(resp_chunk);
     }
@@ -502,7 +522,7 @@ impl MessageWriter {
   async fn end(self) {
     let leftover = self.buf.freeze();
     if !leftover.is_empty() {
-        let _ = self.tx.send(leftover).await;
+      let _ = self.tx.send(leftover).await;
     }
     // send an acknowledgment that the response has completed
     // so the client doesn't observe a successful response completion
@@ -517,15 +537,18 @@ fn json_rowdescr(fields: &[pg::Field<'_>]) -> impl std::fmt::Display {
     write!(f, "[")?;
     let commas = iter::chain([""], iter::repeat(","));
     for (field, comma) in fields.iter().zip(commas) {
-      let pg::Field { name, table_oid, table_col, type_oid, type_mod, .. } = field;
+      let pg::Field { name, table_oid, table_col, type_oid, type_mod, .. } =
+        field;
       let name = json_escape_lossy(name.to_bytes());
-      write!(f, "{comma}{{\
+      write!(
+        f,
+        "{comma}{{\
         \"name\":\"{name}\",\
         \"table_oid\":{table_oid},\
         \"table_col\":{table_col},\
         \"type_oid\":{type_oid},\
-        \"type_mod\":{type_mod}
-      }}")?;
+        \"type_mod\":{type_mod}}}"
+      )?;
     }
     write!(f, "]")
   })
@@ -595,7 +618,6 @@ fn json_escape(inp: &str) -> impl std::fmt::Display {
   })
 }
 
-
 #[derive(Clone)]
 pub struct Notifier {
   tx: tokio::sync::broadcast::Sender<u128>,
@@ -629,7 +651,6 @@ impl Notifier {
   }
 }
 
-
 /*
 ## paging
 
@@ -653,7 +674,6 @@ Therefore, we implement paging explicitly on the server. Options:
   increased surface area of the PostgreSQL API usage, and
   reduced compatibility with PostgreSQL-compatible databases)
 */
-
 
 /*
 

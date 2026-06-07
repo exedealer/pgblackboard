@@ -1,6 +1,6 @@
-use axum::response::Response;
-use axum::http::Uri;
 use super::AppError;
+use axum::http::Uri;
+use axum::response::Response;
 
 /*
 
@@ -25,32 +25,33 @@ pub async fn serve_ui(uri: Uri) -> Result<Response, AppError> {
   match uri.path() {
     "/" => Response::builder()
       .header("content-type", "text/html; charset=utf-8")
-      .body(include_bytes!("../ui/.bundle/index.html").as_slice().into()),
+      .body(include_bytes!("../ui/.bundle/index.html").as_ref().into()),
 
     "/favicon.svg" => Response::builder()
       .header("content-type", "image/svg+xml; charset=utf-8")
-      .body(include_bytes!("../ui/.bundle/favicon.svg").as_slice().into()),
+      .body(include_bytes!("../ui/.bundle/favicon.svg").as_ref().into()),
 
     "/main.js" => Response::builder()
       .header("content-type", "text/javascript; charset=utf-8")
       .header("content-encoding", "gzip")
-      .body(include_bytes!("../ui/.bundle/main.js.gz").as_slice().into()),
+      .body(include_bytes!("../ui/.bundle/main.js.gz").as_ref().into()),
 
     "/map.js" => Response::builder()
       .header("content-type", "text/javascript; charset=utf-8")
       .header("content-encoding", "gzip")
-      .body(include_bytes!("../ui/.bundle/map.js.gz").as_slice().into()),
+      .body(include_bytes!("../ui/.bundle/map.js.gz").as_ref().into()),
 
     "/style.css" => Response::builder()
       .header("content-type", "text/css; charset=utf-8")
       .header("content-encoding", "gzip")
-      .body(include_bytes!("../ui/.bundle/style.css.gz").as_slice().into()),
+      .body(include_bytes!("../ui/.bundle/style.css.gz").as_ref().into()),
 
     _ => Response::builder()
       .status(axum::http::StatusCode::NOT_FOUND)
       .header("content-type", "text/plain; charset=utf-8")
       .body("not found\n".into()),
-  }.map_err(|err| err.into())
+  }
+  .map_err(|err| err.into())
 }
 
 #[cfg(debug_assertions)]
@@ -70,14 +71,17 @@ pub async fn serve_ui(uri: Uri) -> Result<Response, AppError> {
   let file_path = ["./ui", path].concat();
   let file_body = match fs::read(file_path) {
     Ok(body) => body,
-    Err(err) => return match err.kind() {
-      | io::ErrorKind::NotFound
-      | io::ErrorKind::IsADirectory => Response::builder()
-        .status(axum::http::StatusCode::NOT_FOUND)
-        .header("content-type", "text/plain; charset=utf-8")
-        .body("not found\n".into())
-        .map_err(|err| err.into()),
-      _ => Err(err.into()),
+    Err(err) => {
+      return match err.kind() {
+        io::ErrorKind::NotFound | io::ErrorKind::IsADirectory => {
+          Response::builder()
+            .status(axum::http::StatusCode::NOT_FOUND)
+            .header("content-type", "text/plain; charset=utf-8")
+            .body("not found\n".into())
+            .map_err(|err| err.into())
+        }
+        _ => Err(err.into()),
+      };
     }
   };
 

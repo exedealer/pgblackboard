@@ -7,13 +7,14 @@ use Error::*;
 
 #[derive(Debug)]
 pub enum BackendMessage<'a> {
-
   // TODO do not expose startup messages
   NegotiateProtocolVersion,
   AuthenticationOk,
   AuthenticationKerberosV5,
   AuthenticationCleartextPassword,
-  AuthenticationMD5Password { salt: [u8; 4] },
+  AuthenticationMD5Password {
+    salt: [u8; 4],
+  },
   AuthenticationSCMCredential,
   AuthenticationGSS,
   AuthenticationGSSContinue(&'a [u8]),
@@ -21,11 +22,15 @@ pub enum BackendMessage<'a> {
   AuthenticationSASL(Box<[&'a CStr]>),
   AuthenticationSASLContinue(&'a [u8]),
   AuthenticationSASLFinal(&'a [u8]),
-  BackendKeyData { pid: i32, secret_key: &'a [u8] },
+  BackendKeyData {
+    pid: i32,
+    secret_key: &'a [u8],
+  },
   // --------
-
   ParameterStatus(&'a CStr, &'a CStr),
-  ReadyForQuery { txn_status: u8 }, // I|T|E
+  ReadyForQuery {
+    txn_status: u8, // I|T|E
+  },
 
   DataRow(Row<'a>),
   ParseComplete,
@@ -34,9 +39,15 @@ pub enum BackendMessage<'a> {
   ParameterDescription(Box<[Oid]>),
   RowDescription(Box<[Field<'a>]>),
   NoData,
-  CommandComplete { tag: &'a CStr },
-  EmptyQueryResponse { tag: &'static CStr },
-  PortalSuspended { tag: &'static CStr },
+  CommandComplete {
+    tag: &'a CStr,
+  },
+  EmptyQueryResponse {
+    tag: &'static CStr,
+  },
+  PortalSuspended {
+    tag: &'static CStr,
+  },
   ErrorResponse(DbError<'a>),
   NoticeResponse(DbError<'a>),
 
@@ -53,12 +64,13 @@ pub enum BackendMessage<'a> {
   },
 }
 
+// TODO this should be RecvMessageError including IoError and DbError
 #[derive(Debug)]
 pub enum Error {
   MessageTooBig,
   InvalidMessageLength,
   InvalidDatumLength,
-  UnexpectedEndOfMessage,
+  TruncatedMessage,
   UnexpectedTrailingData,
   UnknownMessage,
 }
@@ -71,11 +83,9 @@ impl std::fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-
 /// Numeric object identifer.
 /// http://www.postgresql.org/docs/9.4/static/datatype-oid.html
 pub type Oid = u32;
-
 
 // #[derive(Debug)]
 // #[derive(PartialEq)]
@@ -86,18 +96,24 @@ pub type Oid = u32;
 // }
 //
 
-
-
-
-
 // TODO big toasted values stream or truncate
-pub fn parse_message(buf: &[u8]) -> Result<Option<(usize, BackendMessage<'_>)>> {
-  if buf.len() < 5 { return Ok(None); }
+pub fn parse_message(
+  buf: &[u8],
+) -> Result<Option<(usize, BackendMessage<'_>)>> {
+  if buf.len() < 5 {
+    return Ok(None);
+  }
   let msg_len = buf[1..].first_chunk().map(|x| i32::from_be_bytes(*x)).unwrap();
-  if msg_len < 4 { return Err(InvalidMessageLength); }
-  if msg_len > 0x2000000 { return Err(MessageTooBig); } // TODO limit buffer on caller side
-  let msg_len = msg_len as _;
-  if buf.len() <= msg_len { return Ok(None); }
+  if msg_len < 4 {
+    return Err(InvalidMessageLength);
+  }
+  if msg_len > 0x2000000 {
+    return Err(MessageTooBig); // TODO limit buffer on caller side
+  }
+  let msg_len = msg_len as _; // TODO use .into()/.try_into()
+  if buf.len() <= msg_len {
+    return Ok(None);
+  }
   let ident = buf[0];
   let body = &buf[5..msg_len + 1];
   let res = decode_message(ident, body)?;
@@ -105,14 +121,11 @@ pub fn parse_message(buf: &[u8]) -> Result<Option<(usize, BackendMessage<'_>)>> 
   Ok(Some((msg_len + 1, res)))
 }
 
-// errors
-// unexpected end of message
-// unexpected trailing data
-// unknown postgres message
-pub fn decode_message(ident: u8, ref mut body: &[u8]) -> Result<BackendMessage<'_>> {
+pub fn decode_message(
+  ident: u8,
+  ref mut body: &[u8],
+) -> Result<BackendMessage<'_>> {
   use BackendMessage::*;
-
-  // println!("{}. {:?}", ident.escape_ascii(), body);
 
   // https://github.com/postgres/postgres/blob/REL_18_STABLE/src/include/libpq/protocol.h#L36
   let ret = match ident {
@@ -132,7 +145,7 @@ pub fn decode_message(ident: u8, ref mut body: &[u8]) -> Result<BackendMessage<'
       11 => AuthenticationSASLContinue(read_all(body)),
       12 => AuthenticationSASLFinal(read_all(body)),
       _tag => return Err(UnknownMessage),
-    }
+    },
 
     b'E' => ErrorResponse(read_error(body)?),
     b'N' => NoticeResponse(read_error(body)?),
@@ -148,13 +161,8 @@ pub fn decode_message(ident: u8, ref mut body: &[u8]) -> Result<BackendMessage<'
     b's' => PortalSuspended { tag: c"PORTAL SUSPENDED" },
     b'3' => CloseComplete,
 
-    b'K' => BackendKeyData {
-      pid: read_i32(body)?,
-      secret_key: read_all(body),
-    },
-    b'Z' => ReadyForQuery {
-      txn_status: read_u8(body)?,
-    },
+    b'K' => BackendKeyData { pid: read_i32(body)?, secret_key: read_all(body) },
+    b'Z' => ReadyForQuery { txn_status: read_u8(body)? },
     b'A' => NotificationResponse {
       pid: read_i32(body)?,
       channel: read_str(body)?,
@@ -171,7 +179,7 @@ pub fn decode_message(ident: u8, ref mut body: &[u8]) -> Result<BackendMessage<'
 
   if !body.is_empty() {
     // println!("{}. {:?}", ident.escape_ascii(), body);
-    return Err(UnexpectedTrailingData)
+    return Err(UnexpectedTrailingData);
   }
 
   Ok(ret)
@@ -179,13 +187,13 @@ pub fn decode_message(ident: u8, ref mut body: &[u8]) -> Result<BackendMessage<'
 
 fn read_sasl_mechanisms<'a>(buf: &mut &'a [u8]) -> Result<Box<[&'a CStr]>> {
   let mut ret = Vec::with_capacity(2);
-  while let s = read_str(buf)? && !s.is_empty() {
+  while let s = read_str(buf)?
+    && !s.is_empty()
+  {
     ret.push(s);
   }
   Ok(ret.into())
 }
-
-
 
 #[derive(Debug)]
 pub struct CopyFmt {
@@ -207,7 +215,6 @@ fn read_copy_fmt(buf: &mut &[u8]) -> Result<CopyFmt> {
   Ok(CopyFmt { format, column_formats })
 }
 
-
 #[derive(Clone)]
 pub struct Row<'a> {
   ncols: usize,
@@ -218,11 +225,11 @@ impl<'a> Iterator for Row<'a> {
   type Item = Option<&'a [u8]>;
 
   fn next(&mut self) -> Option<Self::Item> {
-    if self.ncols == 0 { return None; }
+    if self.ncols == 0 {
+      return None;
+    }
     self.ncols -= 1;
-    read_datum(&mut self.buf)
-      .expect("row values should be prevalidated")
-      .into()
+    read_datum(&mut self.buf).expect("row values should be prevalidated").into()
   }
 }
 
@@ -248,9 +255,7 @@ impl<'a> std::fmt::Debug for Row<'a> {
       })
     }
 
-    f.debug_list()
-      .entries(self.clone().map(|val| escape_sql(val)))
-      .finish()
+    f.debug_list().entries(self.clone().map(|val| escape_sql(val))).finish()
   }
 }
 
@@ -258,16 +263,17 @@ fn read_row<'a>(buf: &mut &'a [u8]) -> Result<Row<'a>> {
   let ncols = read_u16(buf)?.into(); // TODO i16? error if negative
   let res = Row { ncols, buf: *buf };
   std::iter::repeat_with(|| read_datum(buf).map(drop))
-    .take(ncols).try_for_each(|res| res)?;
+    .take(ncols)
+    .try_for_each(|res| res)?;
   Ok(res)
 }
 
 fn read_datum<'a>(buf: &mut &'a [u8]) -> Result<Option<&'a [u8]>> {
   match read_i32(buf)? {
     -1 => Ok(None),
-    ilen if let Ok(len) = ilen.try_into() => Ok(Some(
-      buf.split_off(..len).ok_or(UnexpectedEndOfMessage)?
-    )),
+    ilen if let Ok(len) = ilen.try_into() => {
+      Ok(Some(buf.split_off(..len).ok_or(TruncatedMessage)?))
+    }
     _ => Err(InvalidDatumLength),
   }
 
@@ -277,7 +283,6 @@ fn read_datum<'a>(buf: &mut &'a [u8]) -> Result<Option<&'a [u8]>> {
   //   _ => Err(InvalidDatumLength),
   // }
 }
-
 
 #[derive(Debug)]
 pub struct Field<'a> {
@@ -332,7 +337,9 @@ pub struct DbError<'a> {
 
 impl DbError<'_> {
   pub fn into_owned(self) -> DbError<'static> {
-    let fields = self.fields.into_iter()
+    let fields = self
+      .fields
+      .into_iter()
       .map(|(k, v)| (k, Cow::Owned(v.into_owned())))
       .collect();
     DbError { fields }
@@ -341,14 +348,6 @@ impl DbError<'_> {
   pub fn code(&self) -> &[u8] {
     self.get(b'C').map(|v| v.to_bytes()).unwrap_or(b"")
   }
-
-  /// 1-based char offset
-  // pub fn position(&self) -> Option<usize> { // Option<NonZeroUsize> ?
-  //   let val = self.get(b'P')?;
-  //   let val = val.to_str().ok()?;
-  //   let val = val.parse().ok()?;
-  //   (val > 0).then_some(val)
-  // }
 
   fn get(&self, key: u8) -> Option<&CStr> {
     self.fields.iter().find(|(k, _)| k.0 == key).map(|(_, v)| v.as_ref())
@@ -380,27 +379,6 @@ impl std::fmt::Display for DbError<'_> {
 /// https://www.postgresql.org/docs/18/protocol-error-fields.html
 #[derive(Clone, Copy)]
 pub struct DbErrorField(u8);
-
-impl DbErrorField {
-  // pub const SEVERITY: Self = b'S';
-//   pub const SEVERITY_EN: Self = Self(b'V');
-  // const CODE: Self = Self(b'C');
-//   pub const MESSAGE: Self = Self(b'M');
-//   pub const DETAIL: Self = Self(b'D');
-//   pub const HINT: Self = Self(b'H');
-//   pub const POSITION: Self = Self(b'P');
-//   pub const INTERNAL_POSITION: Self = Self(b'p');
-//   pub const INTERNAL_QUERY: Self = Self(b'q');
-//   pub const CONTEXT: Self = Self(b'W');
-//   pub const FILE: Self = Self(b'F');
-//   pub const LINE: Self = Self(b'L');
-//   pub const ROUTINE: Self = Self(b'R');
-//   pub const SCHEMA_NAME: Self = Self(b's');
-//   pub const TABLE_NAME: Self = Self(b't');
-//   pub const COLUMN_NAME: Self = Self(b'c');
-//   pub const DATATYPE_NAME: Self = Self(b'd');
-//   pub const CONSTRAINT_NAME: Self = Self(b'n');
-}
 
 impl std::fmt::Debug for DbErrorField {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -466,8 +444,7 @@ fn read_many<'a, T>(
 }
 
 fn read_str<'a>(buf: &mut &'a [u8]) -> Result<&'a CStr> {
-  let val = std::ffi::CStr::from_bytes_until_nul(*buf)
-    .map_err(|_| UnexpectedEndOfMessage)?;
+  let val = CStr::from_bytes_until_nul(*buf).map_err(|_| TruncatedMessage)?;
   // TODO count_bytes will be O(n)
   let _ = buf.split_off(..val.count_bytes() + 1);
   Ok(val)
@@ -494,14 +471,10 @@ fn read_u8(buf: &mut &[u8]) -> Result<u8> {
 }
 
 fn read_array<const N: usize>(buf: &mut &[u8]) -> Result<[u8; N]> {
-  let (&chunk, tail) = buf.split_first_chunk().ok_or(UnexpectedEndOfMessage)?;
+  let (&chunk, tail) = buf.split_first_chunk().ok_or(TruncatedMessage)?;
   *buf = tail;
   Ok(chunk)
 }
-
-// fn read_exact<'a>(buf: &mut &'a [u8], len: usize) -> Result<&'a [u8]> {
-//   buf.split_off(..len).ok_or(UnexpectedEndOfMessage)
-// }
 
 fn read_all<'a>(buf: &mut &'a [u8]) -> &'a [u8] {
   buf.split_off(..buf.len()).unwrap()

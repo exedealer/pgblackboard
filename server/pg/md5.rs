@@ -1,4 +1,4 @@
-use openssl::hash::{ Hasher, MessageDigest };
+use openssl::hash::{Hasher, MessageDigest};
 use std::io::Write;
 
 pub fn md5_password(user: &[u8], password: &[u8], salt: &[u8]) -> [u8; 3 + 32] {

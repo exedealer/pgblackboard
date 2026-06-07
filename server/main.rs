@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
-mod pg;
 mod auth;
+mod pg;
 mod run;
 mod ui;
 
@@ -11,39 +11,44 @@ use serde::Deserialize;
 use std::ffi::CString;
 use std::sync::Arc;
 
-use run::{ api_run, api_wake, Notifier };
+use run::{Notifier, api_run, api_wake};
 
 fn main() -> Result<(), axum::BoxError> {
+  use axum::http::Uri;
+  use log::LevelFilter;
+  use std::net::SocketAddr;
   use std::str::FromStr;
 
   let matches = clap::Command::new("pgbb")
     .version(env!("CARGO_PKG_VERSION"))
     .about(env!("CARGO_PKG_DESCRIPTION"))
-
-    .arg(clap::Arg::new("pg_uri")
-      .help("Postgres connection URI")
-      .default_value("postgres://127.0.0.1:5432/")
-      // TODO check scheme == "postgres" | "postgresql"
-      // TODO assert empty user:password?
-      .value_parser(axum::http::Uri::from_str))
-
-    .arg(clap::Arg::new("http_addr")
-      .long("http")
-      .help("HOST:PORT to listen")
-      .default_value("0.0.0.0:7890")
-      .value_parser(std::net::SocketAddr::from_str))
-
-    .arg(clap::Arg::new("verbosity")
-      .long("verbosity")
-      .help("Max log level filter")
-      .default_value("info")
-      .value_parser(log::LevelFilter::from_str))
-
+    .arg(
+      clap::Arg::new("pg_uri")
+        .help("Postgres connection URI")
+        .default_value("postgres://127.0.0.1:5432/")
+        // TODO check scheme == "postgres" | "postgresql"
+        // TODO assert empty user:password?
+        .value_parser(Uri::from_str),
+    )
+    .arg(
+      clap::Arg::new("http_addr")
+        .long("http")
+        .help("HOST:PORT to listen")
+        .default_value("0.0.0.0:7890")
+        .value_parser(SocketAddr::from_str),
+    )
+    .arg(
+      clap::Arg::new("verbosity")
+        .long("verbosity")
+        .help("Max log level filter")
+        .default_value("info")
+        .value_parser(LevelFilter::from_str),
+    )
     .get_matches();
 
-  let pg_uri = matches.get_one::<axum::http::Uri>("pg_uri").unwrap().clone();
-  let http_addr = matches.get_one::<std::net::SocketAddr>("http_addr").unwrap().clone();
-  let verbosity = matches.get_one::<log::LevelFilter>("verbosity").unwrap().clone();
+  let pg_uri = matches.get_one::<Uri>("pg_uri").unwrap().clone();
+  let http_addr = matches.get_one::<SocketAddr>("http_addr").unwrap().clone();
+  let verbosity = matches.get_one::<LevelFilter>("verbosity").unwrap().clone();
 
   env_logger::Builder::new()
     .filter(None, verbosity)
@@ -65,7 +70,8 @@ fn main() -> Result<(), axum::BoxError> {
     let port = pg_uri.port_u16().unwrap_or(5432);
     let pgctor = pgctor.with_addr(host, port);
     let qs: Vec<(CString, CString)> = Query::try_from_uri(&pg_uri)?.0;
-    let pgctor = qs.into_iter().fold(pgctor, |pgctor, (k, v)| pgctor.with(k, v));
+    let pgctor =
+      qs.into_iter().fold(pgctor, |pgctor, (k, v)| pgctor.with(k, v));
     pgctor.with(c"client_encoding", c"UTF8") // force utf8
   };
 
@@ -79,19 +85,18 @@ fn main() -> Result<(), axum::BoxError> {
     .route("/api/wake", axum::routing::post(api_wake))
     .route("/api/tree", axum::routing::post(api_tree))
     .route("/api/defn", axum::routing::post(api_defn))
-    .route_layer(axum::middleware::from_fn_with_state(state.clone(), require_auth))
-
+    .route_layer(axum::middleware::from_fn_with_state(
+      state.clone(),
+      require_auth,
+    ))
     // public routes
     .route("/api/auth", axum::routing::post(api_auth))
-    .route("/favicon.ico", axum::routing::get(|| async {
-      axum::response::Redirect::to("favicon.svg")
-    }))
+    .route("/favicon.ico", axum::routing::get(serve_favicon_ico))
     .fallback(ui::serve_ui)
     .layer(axum::middleware::from_fn(log_request))
     .with_state(state);
 
-  let rt = tokio::runtime::Builder::new_multi_thread()
-    .enable_all().build()?;
+  let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
 
   rt.block_on(async move {
     let listener = tokio::net::TcpListener::bind(http_addr).await?;
@@ -109,8 +114,7 @@ async fn on_sigint_or_sigterm() {
   use tokio::signal;
 
   let ctrl_c = async {
-    signal::ctrl_c().await
-      .expect("failed to install Ctrl+C handler");
+    signal::ctrl_c().await.expect("failed to install Ctrl+C handler");
   };
 
   #[cfg(unix)]
@@ -175,9 +179,8 @@ async fn require_auth(
   mut req: axum::extract::Request,
   next: axum::middleware::Next,
 ) -> Response {
-
-  if let Some(token) = req.headers().get("x-pgbb-auth") &&
-    let Some(password) = env.auth.verify(user.as_bytes(), token.as_bytes())
+  if let Some(token) = req.headers().get("x-pgbb-auth")
+    && let Some(password) = env.auth.verify(user.as_bytes(), token.as_bytes())
   {
     let pgctor = env.pgctor.clone().with_credentials(user, password);
     req.extensions_mut().insert(pgctor);
@@ -204,7 +207,9 @@ async fn log_request(
   let status = resp.status().as_u16();
   let err = resp.extensions().get::<AppError>();
   let err_msg = std::fmt::from_fn(|f| {
-    let Some(err) = err else { return Ok(()); };
+    let Some(err) = err else {
+      return Ok(());
+    };
     write!(f, " {}", err.inner)
   });
 
@@ -229,9 +234,10 @@ async fn api_auth(
   // Weak reason to use entire axum/form feature.
   // Looked into the axum source code:
   // axum/form costs nothing if axum/query is also enabled
-  axum::extract::Form(AuthParams { user, password }): axum::extract::Form<AuthParams>
+  axum::extract::Form(AuthParams { user, password }): axum::extract::Form<
+    AuthParams,
+  >,
 ) -> Result<Response, AppError> {
-
   // TODO ip rate limit
 
   // TODO reject weak passwords if ?require_auth=!none
@@ -240,8 +246,7 @@ async fn api_auth(
   // TODO add error context (use anyhow?)
   let token = env.auth.issue(user.as_bytes(), password.as_bytes())?;
 
-  let pgctor = env.pgctor.clone()
-    .with_credentials(user, password);
+  let pgctor = env.pgctor.clone().with_credentials(user, password);
 
   match pgctor.connect().await {
     Ok(pgconn) => {
@@ -276,9 +281,8 @@ async fn api_auth(
   }
 }
 
-
 #[derive(Deserialize)]
-struct ApiTreeParams {
+struct TreeParams {
   db: Option<CString>,
   ntype: Option<String>,
   noid: Option<String>,
@@ -287,9 +291,13 @@ struct ApiTreeParams {
 
 async fn api_tree(
   axum::extract::Extension(pgctor): axum::extract::Extension<pg::Connector>,
-  axum::extract::Query(ApiTreeParams { db, ntype, noid, ntid }): axum::extract::Query<ApiTreeParams>,
+  axum::extract::Query(TreeParams {
+    db,
+    ntype,
+    noid,
+    ntid,
+  }): axum::extract::Query<TreeParams>,
 ) -> Result<Response, AppError> {
-
   let pgctor = pgctor
     .with(c"statement_timeout", c"10s")
     .with(c"default_transaction_read_only", c"on")
@@ -308,7 +316,8 @@ async fn api_tree(
   // Но как нам понимать из ответа sql что родительсткая нода не найдена?
   let mut pgconn = pgctor.connect().await?;
 
-  const QUERY: pg::NZStr<'_> = pg::NZStr::from_bytes(include_bytes!("./api_tree.sql")).unwrap();
+  const QUERY: pg::NZStr<'_> =
+    pg::NZStr::from_bytes(include_bytes!("./api_tree.sql")).unwrap();
 
   let params = [ntype.as_ref(), noid.as_ref(), ntid.as_ref()]
     .map(|val| val.map(|x| x.as_bytes()));
@@ -337,7 +346,7 @@ async fn api_tree(
 }
 
 #[derive(Deserialize)]
-struct ApiDefnParams {
+struct DefnParams {
   db: CString,
   ntype: Option<String>,
   noid: Option<String>,
@@ -346,9 +355,13 @@ struct ApiDefnParams {
 
 async fn api_defn(
   axum::extract::Extension(pgctor): axum::extract::Extension<pg::Connector>,
-  axum::extract::Query(ApiDefnParams { db, ntype, noid, ntid }): axum::extract::Query<ApiDefnParams>,
+  axum::extract::Query(DefnParams {
+    db,
+    ntype,
+    noid,
+    ntid,
+  }): axum::extract::Query<DefnParams>,
 ) -> Result<Response, AppError> {
-
   let pgctor = pgctor
     .with(c"statement_timeout", c"10s")
     .with(c"default_transaction_read_only", c"on")
@@ -359,7 +372,8 @@ async fn api_defn(
   // TODO handle 3D000 invalid_catalog = 200 ok , /* no such database */
   let mut pgconn = pgctor.connect().await?;
 
-  const QUERY: pg::NZStr<'_> = pg::NZStr::from_bytes(include_bytes!("./api_defn.sql")).unwrap();
+  const QUERY: pg::NZStr<'_> =
+    pg::NZStr::from_bytes(include_bytes!("./api_defn.sql")).unwrap();
 
   let params = [ntype.as_ref(), noid.as_ref(), ntid.as_ref()]
     .map(|val| val.map(|x| x.as_bytes()));
@@ -387,4 +401,8 @@ async fn api_defn(
     .header("content-type", "text/plain; charset=utf-8")
     .body(resp_body.into())
     .map_err(|err| err.into())
+}
+
+async fn serve_favicon_ico() -> axum::response::Redirect {
+  axum::response::Redirect::to("favicon.svg")
 }
