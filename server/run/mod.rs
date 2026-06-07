@@ -174,9 +174,8 @@ async fn api_run_inner(
 
   let statements = std::iter::from_fn(|| {
     let pos = statement_boundary(script);
-    let stmt = script.split_off(..pos).expect(
-      "statement boundary should be within script"
-    );
+    let stmt;
+    (stmt, script) = script.split_at(pos);
     Some(stmt).filter(|s| !s.is_empty())
   });
 
