@@ -60,6 +60,7 @@ fn main() -> Result<(), axum::BoxError> {
     use axum::extract::Query;
 
     let pgctor = pg::Connector::new()
+      .with(c"database", c"postgres") // defaults to the user name
       .with(c"client_min_messages", c"NOTICE")
       .with(c"application_name", c"pgbb");
 
