@@ -15,7 +15,7 @@ Postgres web interface for SQL geeks
 
 [Docker Hub repo](https://hub.docker.com/r/exedealer/pgblackboard)
 
-![Docker Image Size (tag)](https://img.shields.io/docker/image-size/exedealer/pgblackboard/v3?style=for-the-badge)
+![Docker Image Size (tag)](https://img.shields.io/docker/image-size/exedealer/pgblackboard/latest)
 
 ```sh
 docker run -it --rm -p 7890:7890 exedealer/pgblackboard pgbb 'postgres://HOST:5432'
