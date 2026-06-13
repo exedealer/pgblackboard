@@ -17,25 +17,15 @@ impl Authenticator {
   }
 
   // TODO add expiration?
-  pub fn issue(
-    &self,
-    user: &[u8],
-    password: &[u8],
-  ) -> Result<String, ErrorStack> {
+  pub fn issue(&self, user: &[u8], pwd: &[u8]) -> Result<String, ErrorStack> {
     let mut iv = [0u8; 12];
     rand_bytes(&mut iv)?;
 
     let mut tag = [0u8; 16];
-    let ciphertext = encrypt_aead(
-      Cipher::aes_256_gcm(),
-      &self.secret,
-      Some(&iv),
-      user, // AAD
-      password,
-      &mut tag,
-    )?;
+    let alg = Cipher::aes_256_gcm();
+    let enc = encrypt_aead(alg, &self.secret, Some(&iv), user, pwd, &mut tag)?;
 
-    let token = [iv.as_slice(), tag.as_slice(), &ciphertext].concat();
+    let token = [iv.as_slice(), tag.as_slice(), &enc].concat();
     Ok(base64::encode_block(&token))
   }
 
@@ -43,20 +33,11 @@ impl Authenticator {
     let token_str = std::str::from_utf8(token).ok()?;
     let bytes = base64::decode_block(token_str).ok()?;
 
-    let mut ciphertext = bytes.as_slice();
-    let iv = ciphertext.split_off(..12)?;
-    let tag = ciphertext.split_off(..16)?;
-
-    let password = decrypt_aead(
-      Cipher::aes_256_gcm(),
-      &self.secret,
-      Some(iv),
-      user, // AAD
-      ciphertext,
-      tag,
-    )
-    .ok()?;
-
-    Some(password)
+    let mut enc = bytes.as_slice();
+    let iv = enc.split_off(..12)?;
+    let tag = enc.split_off(..16)?;
+    let alg = Cipher::aes_256_gcm();
+    let pwd = decrypt_aead(alg, &self.secret, Some(iv), user, enc, tag).ok()?;
+    Some(pwd)
   }
 }

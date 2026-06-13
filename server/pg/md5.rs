@@ -31,7 +31,7 @@ mod tests {
   }
 
   #[test]
-  fn test_2() {
+  fn test_zeros() {
     let result = md5_password(b"user", b"password", &[0, 129, 128, 43]);
     assert_eq!(result, *b"md50003108c669dd0773195cf7c18a00700");
   }
