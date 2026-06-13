@@ -417,11 +417,8 @@ struct MessageWriter {
 
 impl MessageWriter {
   fn write_start(&mut self, pos_utf16: usize) {
-    write!(
-      self.buf,
-      "[\"start\", {{\"position_utf16\": {pos_utf16}}}]\n"
-    )
-    .unwrap();
+    write!(self.buf, "[\"start\", {{\"position_utf16\": {pos_utf16}}}]\n")
+      .unwrap();
   }
 
   fn write_head(&mut self, payload: &[u8]) {

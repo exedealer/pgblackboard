@@ -18,7 +18,6 @@ pub use decode::DbError;
 pub use decode::Field;
 pub use decode::Row;
 pub use encode::NZStr;
-// pub use encode::ContainsZeroError;
 
 // open enum https://github.com/rust-lang/rfcs/pull/3894
 pub const TEXT_OID: u32 = 25;
@@ -26,18 +25,12 @@ pub const OID_OID: u32 = 26;
 pub const JSON_OID: u32 = 114;
 // pub const JSONB_OID: u32 = 3802;
 
-// type BoxError = Box<dyn std::error::Error + Sync + Send + 'static>;
-
 #[derive(Clone, Debug)]
 pub struct Connector {
   // addr: SocketAddr,
   host: String,
   port: u16,
   password: Vec<u8>,
-  // The only case when we need to access `user` directly is for md5 auth.
-  // But `user` is the only option which is required by protocol spec, so keep it static
-  // https://www.postgresql.org/docs/16/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-STARTUPMESSAGE
-  // user: Vec<u8>,
 
   // TODO prohibit underscored keys
   options: Vec<(CString, CString)>,
@@ -61,7 +54,7 @@ impl Connector {
     opt: impl Into<CString>,
     val: impl Into<CString>,
   ) -> Self {
-    // TODO rm existing opt. Case insensitive key comparison? (timezone)
+    // TODO dedup. Case insensitive key comparison? (timezone)
     self.options.push((opt.into(), val.into()));
     self
   }
@@ -219,32 +212,20 @@ impl Connection {
   }
 
   pub fn send_bind(&mut self, stmt_name: &CStr, params: &[Option<&[u8]>]) {
-    let portal_name = c"".into();
-    let out_formats = &[];
-    let param_formats = &[];
-    write_bind(
-      &mut self.txbuf,
-      stmt_name.into(),
-      portal_name,
-      out_formats,
-      param_formats,
-      params,
-    );
+    let stmt_name = stmt_name.into();
+    let portal = c"".into();
+    let out_fmt = &[];
+    let param_fmt = &[];
+    write_bind(&mut self.txbuf, stmt_name, portal, out_fmt, param_fmt, params);
   }
 
   // TODO dry
   pub fn send_bind_bin(&mut self, stmt_name: &CStr, params: &[Option<&[u8]>]) {
-    let portal_name = c"".into();
-    let out_formats = &[1];
-    let param_formats = &[1];
-    write_bind(
-      &mut self.txbuf,
-      stmt_name.into(),
-      portal_name,
-      out_formats,
-      param_formats,
-      params,
-    );
+    let stmt_name = stmt_name.into();
+    let portal = c"".into();
+    let out_fmt = &[1];
+    let param_fmt = &[1];
+    write_bind(&mut self.txbuf, stmt_name, portal, out_fmt, param_fmt, params);
   }
 
   pub fn send_execute(&mut self) {
@@ -303,15 +284,11 @@ impl Connection {
     parse_message(buf).transpose().is_none()
   }
 
-  // TODO err.into_authorized? we should have separate recv_message for pub and internal use anyway
-  // because we should not expose auth/startup messages.
-  // Seems that we also should not expose ErrorResponse option
   pub async fn recv_message(&mut self) -> io::Result<BackendMessage<'_>> {
     while self.is_drained() {
       self.do_io().await?;
     }
 
-    // нам здесь нужен непрерывный буфер, поэтому vecdeque не пойдет
     let buf = &self.rxbuf[self.rxbuf_consumed..];
     let (nparsed, msg) = parse_message(buf)
       .map_err(|err| io::Error::other(err))?
