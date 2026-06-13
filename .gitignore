@@ -3,5 +3,6 @@
 !.dockerignore
 !.editorconfig
 !.gitignore
+!.gitattributes
 
 /target
