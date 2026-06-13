@@ -1,1 +1,2 @@
 ui/_vendor/* linguist-vendored
+*.sql linguist-language=SQL linguist-detectable=true
