@@ -92,6 +92,7 @@ pub async fn serve_ui(uri: Uri) -> Result<Response, AppError> {
     p if p.ends_with(".js") => "text/javascript; charset=utf-8",
     p if p.ends_with(".svg") => "image/svg+xml; charset=utf-8",
     p if p.ends_with(".woff2") => "font/woff2",
+    p if p.ends_with(".json") => "application/json",
     _ => "application/octet-stream",
   };
 

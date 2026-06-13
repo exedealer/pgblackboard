@@ -1,4 +1,4 @@
-const data = [
+[
 
 [139.749462, 35.686963, "Tokyo", 35676000],
 [-73.981963, 40.751925, "New York", 19040000],
@@ -7341,15 +7341,6 @@ const data = [
 [153.900001, 70.85039, "Logashkino", 0],
 [-177.926412, -29.246514, "Raoul Island Station", 0],
 [136.216636, 70.733291, "Kavache", -99],
-[-59.849949, -23.050287, "Fortin Falcon", -99],
+[-59.849949, -23.050287, "Fortin Falcon", -99]
 
-];
-
-export default {
-  type: 'FeatureCollection',
-  features: data.map(([lon, lat, name], weight) => ({
-    type: 'Feature',
-    geometry: { type: 'Point', coordinates: [lon, lat] },
-    properties: { name, weight },
-  })),
-};
+]

@@ -1,15 +1,23 @@
 import maplibregl from '../_vendor/maplibre.js';
-import ne_cities from './ne_cities.js'; // TODO gc after URL.createObjectURL
-import ne_land from './ne_land.js'; // TODO gc after URL.createObjectURL
-import glyphs from './glyphs.js';
 import { wkt2json } from './wkt2json.js';
+import ne_cities from './ne_cities.json' with { type: 'json' };
+import ne_land from './ne_land.json' with { type: 'json' };
+import glyphs from './glyphs.json' with { type: 'json' };
 
 const MapGL = maplibregl.Map;
 
 const ne_land_blob = new Blob([JSON.stringify(ne_land)], { type: 'application/json' });
 const ne_land_url = URL.createObjectURL(ne_land_blob);
 
-const ne_cities_blob = new Blob([JSON.stringify(ne_cities)], { type: 'application/json' });
+const ne_cities_geojson = {
+  type: 'FeatureCollection',
+  features: ne_cities.map(([lon, lat, name], weight) => ({
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: [lon, lat] },
+    properties: { name, weight },
+  })),
+};
+const ne_cities_blob = new Blob([JSON.stringify(ne_cities_geojson)], { type: 'application/json' });
 const ne_cities_url = URL.createObjectURL(ne_cities_blob);
 
 const glyphs_blob = await fetch(glyphs).then(x => x.blob());
