@@ -157,9 +157,28 @@ impl Connection {
         self.auth_pwd(&md5pwd).await?;
       }
       self::AuthenticationSASL(_mechs) => {
-        // if mechs.contains(&&b"SCRAM-SHA-256"[..]) {
-        self.auth_sasl(password).await?;
-        // }
+        // if mechs.contains(&&b"SCRAM-SHA-256"[..])
+        let mut scram = scram::ScramSha256::new(user)?;
+        let initial = scram.client_first_message();
+        let mech = c"SCRAM-SHA-256";
+        write_sasl_initial_resp(&mut self.txbuf, mech.into(), Some(&initial));
+
+        let msg = self.recv_message().await?;
+        let AuthenticationSASLContinue(server_first) = msg else {
+          return Err("AuthenticationSASLContinue expected".into());
+        };
+        let client_fin = scram.update(server_first, password)?;
+        write_sasl_resp(&mut self.txbuf, &client_fin);
+
+        let msg = self.recv_message().await?;
+        let AuthenticationSASLFinal(server_fin) = msg else {
+          return Err("AuthenticationSASLFinal expected".into());
+        };
+        scram.finish(server_fin)?;
+
+        let AuthenticationOk = self.recv_message().await? else {
+          return Err("AuthenticationOk expected".into());
+        };
       }
       self::AuthenticationKerberosV5
       | self::AuthenticationSCMCredential
@@ -178,33 +197,6 @@ impl Connection {
       // TODO proper error normalization
       .map_err(|_| "invalid password")?;
     write_password(&mut self.txbuf, pwd_nz);
-    let AuthenticationOk = self.recv_message().await? else {
-      return Err("AuthenticationOk expected".into());
-    };
-    Ok(())
-  }
-
-  async fn auth_sasl(&mut self, password: &[u8]) -> Result<(), ConnectError> {
-    let mut scram_sha256 = scram::ScramSha256::new();
-    let data = scram_sha256.start("")?;
-    write_sasl_initial_resp(
-      &mut self.txbuf,
-      c"SCRAM-SHA-256".into(),
-      Some(data.as_slice()),
-    );
-    use AuthenticationSASLContinue as SASLContinue;
-    let SASLContinue(server_first) = self.recv_message().await? else {
-      return Err("AuthenticationSASLContinue expected".into());
-    };
-    let data = scram_sha256.update(server_first, password)?;
-    write_sasl_resp(&mut self.txbuf, data.as_ref());
-
-    use AuthenticationSASLFinal as SASLFinal;
-    let SASLFinal(server_final) = self.recv_message().await? else {
-      return Err("AuthenticationSASLFinal expected".into());
-    };
-    scram_sha256.finish(server_final)?;
-
     let AuthenticationOk = self.recv_message().await? else {
       return Err("AuthenticationOk expected".into());
     };
@@ -446,12 +438,6 @@ impl From<std::io::Error> for ConnectError {
 
 impl From<decode::Error> for ConnectError {
   fn from(err: decode::Error) -> Self {
-    Self::new(err)
-  }
-}
-
-impl From<scram::Error> for ConnectError {
-  fn from(err: scram::Error) -> Self {
     Self::new(err)
   }
 }
