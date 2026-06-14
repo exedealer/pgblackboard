@@ -94,24 +94,34 @@ export class Store {
     };
     const auth = this.auth;
     try {
-
       const resp = await fetch('api/auth', {
         method: 'POST',
         headers: { 'accept': 'application/json' },
         body: new URLSearchParams({ user: u, password }),
       });
-      // TODO use resp.body for error message for non-200 response
-      if (!resp.ok) throw Error(`${resp.status} ${resp.statusText}`, { cause: resp });
-      const { token } = await resp.json() || 0;
       // await new Promise(resolve => setTimeout(resolve, 3000));
+      if (!resp.ok) {
+        const resp_buf = await resp.arrayBuffer();
+        const resp_sample = new Uint8Array(resp_buf).subarray(0, 512);
+        const ellipsis = ' \u2026'.repeat(resp_buf.byteLength > resp_sample.byteLength);
+        const resp_sample_text = (
+          new TextDecoder()
+          .decode(resp_sample, { stream: true })
+          .trim()
+          .concat(ellipsis)
+        );
+
+        throw Error(`${resp_sample_text} (HTTP ${resp.status})`, { cause: resp });
+      }
+      const { token } = await resp.json() || 0;
       auth.token = token;
       // TODO concurent store mutation if multiple parallel .auth() called
       await this._load_tree_and_drafts();
 
       auth.ok = true;
     } catch (ex) {
-      console.error(ex);
-      auth.error = String(ex);
+      console.error('auth failed', ex);
+      auth.error = ex instanceof Error ? ex.message : String(ex);
     } finally {
       auth.pending = false;
     }

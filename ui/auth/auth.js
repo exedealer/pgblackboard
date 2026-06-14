@@ -12,6 +12,7 @@ const methods = {
           class: 'auth-user',
           type: 'text',
           name: 'user',
+          required: true,
           placeholder: 'user',
           autofocus: true,
           autocomplete: 'username',
@@ -25,18 +26,25 @@ const methods = {
           name: 'password',
           placeholder: 'password',
           autocomplete: 'current-password',
+          'aria-describedby': 'auth-error',
+
+          ... Boolean(error) && {
+            'aria-invalid': 'true',
+          },
         },
 
         {
           tag: 'button',
           class: 'auth-submit',
           disabled: pending,
-          inner: 'Login',
+          inner: 'Log in',
         },
 
         {
-          tag: 'output',
+          tag: 'div',
+          id: 'auth-error',
           class: 'auth-error',
+          role: 'alert',
           inner: error,
         },
       ],
