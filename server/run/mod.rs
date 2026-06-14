@@ -267,7 +267,8 @@ async fn api_run_inner(
         };
         // TODO do not flatten - error hiding
         let head_payload = row.into_iter().next().flatten().unwrap_or(b"null");
-        msgw.write_head(head_payload);
+        let head_payload = String::from_utf8_lossy(head_payload);
+        msgw.write_head(&head_payload);
       }
     }
 
@@ -283,6 +284,7 @@ async fn api_run_inner(
       {
         log::debug!("suspended on page boundary");
         // TODO better name for traffic_limit_exceeded, there is a per page limit
+        // end_of_page
         msgw.flush(Some("traffic_limit_exceeded")).await;
         n_bytes_sent = 0;
         n_rows_written = 0;
@@ -421,11 +423,9 @@ impl MessageWriter {
       .unwrap();
   }
 
-  fn write_head(&mut self, payload: &[u8]) {
+  fn write_head(&mut self, payload: &str) {
     // TODO better message name head -> meta, row_description, columns, schema
-    self.buf.extend_from_slice(b"[\"head\", ");
-    self.buf.extend_from_slice(payload);
-    self.buf.extend_from_slice(b"]\n");
+    write!(self.buf, "[\"head\", {payload}]\n").unwrap();
   }
 
   fn write_row(&mut self, row: pg::Row<'_>) {
