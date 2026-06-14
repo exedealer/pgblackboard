@@ -532,7 +532,11 @@ export class Store {
   }
 
   can_run() {
-    return !this.out.loading && !this.selected_draft?.loading;
+    return (
+      !this.out.loading &&
+      this.selected_draft &&
+      !this.selected_draft.loading
+    );
   }
 
   async run({ selected } = 0) {
