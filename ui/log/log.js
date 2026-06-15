@@ -83,7 +83,16 @@ const methods = {
       ];
     }
 
-    const { severity, severity_en, code, message, detail, hint, position_utf16, ...fields } = payload;
+    const {
+      severity,
+      severity_en,
+      code,
+      message,
+      detail,
+      hint,
+      position_utf16: _p,
+      ...fields
+    } = payload;
     return [{
       tag: 'details',
       open: kind == 'error',

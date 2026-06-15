@@ -629,8 +629,8 @@ export class Store {
               const col = frame.cols[col_idx];
               try {
                 payload[col_idx] = prettify_datum(col, datum);
-              } catch (ex) {
-                // TODO handle datum transformation error
+              } catch {
+                // TODO how to handle datum transformation error?
               }
             }
             frame.rows.push({

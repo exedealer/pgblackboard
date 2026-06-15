@@ -122,8 +122,7 @@ const methods = {
       this.$store.save_selected_draft();
     }
   },
-  watch_errors(errors, old_errors = []) {
-    // if (errors.length == 0 && old_errors.length == 0) return; // ignore unchanged
+  watch_errors(errors) {
     this._decorations.set(
       errors
       .map(e => this._editor.getModel().getPositionAt(e.position))

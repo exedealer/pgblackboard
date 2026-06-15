@@ -50,7 +50,7 @@ export function wkt2json(/** @type {string} */ inp) {
     const vertex = [];
     // TODO more strict number?
     // https://github.com/postgis/postgis/blob/e936c74a8139d68beb081c2c55c131e8aa6d16e8/liblwgeom/lwin_wkt_lex.l#L62
-    for (let n; n = eat(/[-+\d\.ena]+/yig);) {
+    for (let n; (n = eat(/[-+\d.ena]+/yig));) {
       vertex.push(Number(n));
     }
     // TODO check vertex.length > 1

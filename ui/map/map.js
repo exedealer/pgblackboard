@@ -647,34 +647,34 @@ const methods = {
       })[0]
     );
     if (!feature) return; // TODO clear highlight
-    const { frame_idx, row_idx } = feature.properties;
-    this.$store.set_selected_rowcol(frame_idx, row_idx);
-    this.$broadcast('req_row_navigate');
+    // const { frame_idx, row_idx } = feature.properties;
+    // this.$store.set_selected_rowcol(frame_idx, row_idx);
+    // this.$broadcast('req_row_navigate');
     // TODO zoom to feature extent
   },
 
   on_req_map_navigate() {
     return; // TODO make navigation unobtrusive
 
-    const hl_fcoll = this.$cached(this.get_selected_features);
-    const feature = hl_fcoll.features.find(f => f.bbox);
-    if (!feature) return;
-    // TODO globe support (and pitch, bearing)
-    // const padding = 0; // px
-    const { width, height } = this._ml.transform;
-    // const sw = this._ml.unproject([padding, height - padding]);
-    // const ne = this._ml.unproject([width - padding, padding]);
-    // const bounds = new LngLatBounds(sw, ne);
-    // const bounds = this._ml.getBounds();
-    // bounds.extend(feature.bbox);
-    const padding = {
-      left: width * .4,
-      right: width * .4,
-      top: height * .4,
-      bottom: height * .4,
-    };
-    this._ml.fitBounds(feature.bbox, { padding });
-    // TODO if point then use box of the point and nearest point from dataset
+    // const hl_fcoll = this.$cached(this.get_selected_features);
+    // const feature = hl_fcoll.features.find(f => f.bbox);
+    // if (!feature) return;
+    // // TODO globe support (and pitch, bearing)
+    // // const padding = 0; // px
+    // const { width, height } = this._ml.transform;
+    // // const sw = this._ml.unproject([padding, height - padding]);
+    // // const ne = this._ml.unproject([width - padding, padding]);
+    // // const bounds = new LngLatBounds(sw, ne);
+    // // const bounds = this._ml.getBounds();
+    // // bounds.extend(feature.bbox);
+    // const padding = {
+    //   left: width * .4,
+    //   right: width * .4,
+    //   top: height * .4,
+    //   bottom: height * .4,
+    // };
+    // this._ml.fitBounds(feature.bbox, { padding });
+    // // TODO if point then use box of the point and nearest point from dataset
   },
 };
 
