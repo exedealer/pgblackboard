@@ -51,7 +51,7 @@ const xDraftsItem = {
             onClick: this.delete,
           },
         ],
-      }
+      };
     },
     select() {
       this.$store.set_selected_draft(this.draft_id);

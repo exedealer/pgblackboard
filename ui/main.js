@@ -11,26 +11,26 @@ globalThis.MonacoEnvironment = {
       case 'json': return monaco_json_worker();
       default: return monaco_worker();
     }
-	},
+  },
 };
 
 editor.defineTheme('pgbb-dark', {
-	base: 'vs-dark',
-	inherit: true,
+  base: 'vs-dark',
+  inherit: true,
   colors: {
     'editorLineNumber.foreground': '#5c5c5c',
   },
-	rules: [
+  rules: [
     { token: 'comment', foreground: '888888' },
     { token: 'string.sql', foreground: 'CE9178' },
   ],
 });
 
 editor.defineTheme('pgbb-light', {
-	base: 'vs',
-	inherit: true,
+  base: 'vs',
+  inherit: true,
   colors: {},
-	rules: [
+  rules: [
     { token: 'comment', foreground: '888888' },
     { token: 'string.sql', foreground: 'A31515' },
   ],
