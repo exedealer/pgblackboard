@@ -74,7 +74,7 @@
   &:hover {
     opacity: 1;
   }
-  &[aria-checked="true"] {
+  &[aria-checked='true'] {
     background-color: currentColor;
   }
 }
@@ -103,11 +103,11 @@
   /* prevent empty cell collapsion */
   height: 2em; /* TODO 1lh */
 
-  &[data-dirty="delete"] {
+  &[data-dirty='delete'] {
     text-decoration: line-through solid 1px;
     background-color: hsl(0 50 50 / .3);
   }
-  &[aria-selected="true"] {
+  &[aria-selected='true'] {
     background-color: light-dark(hsl(0 0 0 / .8), hsl(0 0 100 / .8));
     color: light-dark(hsl(0 0 95), hsl(0 0 20));
   }
@@ -119,7 +119,7 @@
   padding: 0 1rem;
   white-space: pre;
 
-  &[aria-selected="true"] {
+  &[aria-selected='true'] {
     backdrop-filter: contrast(1.5);
 
     .out[data-datum_focused] & {
@@ -177,7 +177,7 @@
   position: absolute;
   font-variant-numeric: proportional-nums;
 
-  .out-row[aria-selected="true"] .out-delete_row:enabled ~ &,
+  .out-row[aria-selected='true'] .out-delete_row:enabled ~ &,
   .out-revert_row:enabled ~ & {
     /* font-size: 0; */
     visibility: hidden;
@@ -208,7 +208,7 @@
   display: none;
   mask-image: url('./icon_delete.svg');
 
-  .out-row[aria-selected="true"] &:enabled {
+  .out-row[aria-selected='true'] &:enabled {
     display: block;
   }
 }
