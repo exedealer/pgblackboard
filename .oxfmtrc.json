@@ -1,3 +1,5 @@
 {
-  "ignorePatterns": ["ui/_vendor/**"]
+  "ignorePatterns": ["ui/_vendor/**"],
+  "singleQuote": true,
+  "arrowParens": "avoid"
 }
