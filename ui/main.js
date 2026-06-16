@@ -88,7 +88,7 @@ function pojo_vdom_plugin(app) {
       for (let i = 0; i < def.length; i++) {
         def[i] = transform_vdom(def[i]);
       }
-    };
+    }
     const { tag, inner } = def || 0;
     if (tag) {
       def.tag = undefined;
