@@ -1,9 +1,10 @@
 .log {
   position: sticky;
   inset: auto 0;
-  background: linear-gradient(to right,
+  background: linear-gradient(
+    to right,
     transparent 0 3rem,
-    hsl(0 0 0 / .08) 3rem,
+    hsl(0 0 0 / 8%) 3rem,
     hsl(0 0 0 / 0) 50%
   );
 }
@@ -53,10 +54,10 @@
   all: unset;
   position: absolute;
   inset: 0 0 0 auto;
-  margin: .5rem 1rem;
+  margin: 0.5rem 1rem;
   min-width: 5rem;
   line-height: 2;
-  font-size: .75rem;
+  font-size: 0.75rem;
   font-weight: 500;
   font-stretch: normal;
   border-radius: 1rem;
@@ -71,10 +72,10 @@
   all: unset;
   position: absolute;
   inset: 0 0 0 auto;
-  margin: .5rem 1rem;
+  margin: 0.5rem 1rem;
   min-width: 5rem;
   line-height: 2;
-  font-size: .75rem;
+  font-size: 0.75rem;
   font-weight: 500;
   font-stretch: normal;
   border-radius: 1rem;
@@ -87,39 +88,15 @@
 
 .log-item {
   padding-inline: 4rem 1rem;
-  padding-block: .4rem .35rem;
+  padding-block: 0.4rem 0.35rem;
   margin: 0;
   line-height: 1.25;
   white-space: pre-wrap;
   position: relative; /* icon/toggler */
 
   &:nth-last-child(odd) {
-    background-color: hsl(0 0 50 / .05);
+    background-color: hsl(0 0 50 / 5%);
   }
-  /* &::before {
-    content: '';
-    position: absolute;
-    width: 3rem;
-    height: 2rem;
-    left: 0;
-    top: 0;
-    color: hsl(0 0% 50%);
-    background-color: currentcolor;
-    mask: url('./icon_check.svg') center / 1rem no-repeat;
-  } */
-  /* &[data-tag=NoticeResponse] {
-    color: hsl(0 0% 50%);
-    &::before {
-      mask-image: url('./icon_ellipsis.svg');
-    }
-  }
-  &[data-tag=ErrorResponse] {
-    background-color: hsl(330 80% 60% / .1);
-    &::before {
-      color: hsl(330 80% 60%);
-      mask-image: url('./icon_ellipsis.svg');
-    }
-  }*/
 }
 
 .log-marker {
@@ -139,14 +116,11 @@
 .log-prefix {
   white-space: nowrap;
 
-  &[data-severity=ERROR i],
-  &[data-severity=FATAL i],
-  &[data-severity=PANIC i] {
+  &[data-severity='ERROR' i],
+  &[data-severity='FATAL' i],
+  &[data-severity='PANIC' i] {
     color: light-dark(hsl(330 90 38), hsl(330 75 65));
   }
-  /* &[data-severity=WARNING i] {
-    color: hsl(55, 60%, 70%);
-  } */
 }
 
 .log-message {
@@ -154,13 +128,13 @@
 }
 
 .log-detail {
-  margin-block: .5rem 0;
+  margin-block: 0.5rem 0;
 }
 
 .log-hint {
-  margin-block: .5rem 0;
+  margin-block: 0.5rem 0;
 }
 
 .log-fields {
-  margin-block: .5rem 0;
+  margin-block: 0.5rem 0;
 }

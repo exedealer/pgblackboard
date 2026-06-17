@@ -17,7 +17,7 @@
   pointer-events: none;
   font-style: italic !important;
   font-weight: 300 !important;
-  opacity: .5;
+  opacity: 50%;
 
   .datum[data-null] &::before {
     content: 'NULL';

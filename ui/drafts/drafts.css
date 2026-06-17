@@ -24,21 +24,21 @@
     width: 1lh;
     height: 1lh;
     background-color: currentcolor;
-    opacity: .7;
+    opacity: 70%;
     mask: url('./marker_draft.svg') center / 1em no-repeat;
   }
 
   &:empty::after {
     content: '-- empty --';
-    opacity: .7;
+    opacity: 70%;
   }
 
   &:hover {
-    background-color: hsl(0 0 50 / .1);
+    background-color: hsl(0 0 50 / 10%);
   }
 
   .drafts-item[aria-selected='true'] & {
-    background-color: hsl(0 0 50 / .25);
+    background-color: hsl(0 0 50 / 25%);
   }
 }
 
@@ -66,7 +66,7 @@
     inset: 0;
     background-color: currentcolor;
     mask: url('./delete.svg') center / 1em no-repeat;
-    opacity: .5;
+    opacity: 50%;
     transition: opacity 200ms ease;
   }
 

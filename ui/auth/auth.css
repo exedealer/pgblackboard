@@ -6,17 +6,17 @@
 .auth-user,
 .auth-password {
   all: unset;
-  border-bottom: 1px solid hsl(0 0 50 / .2);
-  border-bottom-color: hsl(from currentColor h s l / .1);
+  border-bottom: 1px solid hsl(0 0 50 / 20%);
+  border-bottom-color: hsl(from currentColor h s l / 10%);
   line-height: 2.5;
-  padding-inline: .5em;
-  margin-block: .125em;
+  padding-inline: 0.5em;
+  margin-block: 0.125em;
 
   &:focus {
     outline: 1px dashed transparent;
-    outline-offset: -.25em;
-    border-bottom-color: hsl(0 0 50 / .8);
-    border-bottom-color: hsl(from currentColor h s l / .5);
+    outline-offset: -0.25em;
+    border-bottom-color: hsl(0 0 50 / 80%);
+    border-bottom-color: hsl(from currentColor h s l / 50%);
   }
   &:autofill {
     border-color: transparent;
@@ -25,13 +25,13 @@
   &::placeholder {
     /* make placeholder color mixed with background color for more contrast */
     color: currentColor;
-    opacity: .4;
+    opacity: 40%;
   }
 }
 
 .auth-submit {
   all: unset;
-  font-size: .75rem;
+  font-size: 0.75rem;
   line-height: 2rem;
   font-weight: 500;
   font-stretch: normal;
@@ -50,24 +50,33 @@
   &:disabled {
     cursor: initial;
     filter: opacity(50%);
-    background-image: linear-gradient(to right, hsl(0 0 100 / 0) 0%, hsl(0 0 100 / 0.25) 50%, hsl(0 0 100 / 0) 100%);
+    background-image: linear-gradient(
+      to right,
+      hsl(0 0 100 / 0) 0%,
+      hsl(0 0 100 / 25%) 50%,
+      hsl(0 0 100 / 0) 100%
+    );
     background-repeat: no-repeat;
     animation: 2s infinite auth-submit_pending;
   }
   &:focus-visible {
     outline: 1px dashed currentColor;
-    outline-offset: -.25rem;
+    outline-offset: -0.25rem;
   }
 }
 
 @keyframes auth-submit_pending {
-  0% { background-position: -20em 0; }
-  100% { background-position: 20em 0; }
+  0% {
+    background-position: -20em 0;
+  }
+  100% {
+    background-position: 20em 0;
+  }
 }
 
 .auth-error {
   line-height: 1.2;
-  background: light-dark(hsla(355 100 50 / 0.2), hsla(340 100 50 / 0.2));
+  background: light-dark(hsla(355 100 50 / 20%), hsla(340 100 50 / 20%));
   padding: 1em;
   border-radius: 1em;
 

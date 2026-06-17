@@ -4,7 +4,7 @@
 .app-theme_btn,
 .app-dump_changes_btn {
   all: unset;
-  font-size: .75rem;
+  font-size: 0.75rem;
   font-weight: 500;
   font-stretch: normal;
   text-transform: uppercase;
@@ -22,16 +22,18 @@
   --app-pane_datum_min: 4rem;
   --app-pane_map_min: 4rem;
 
-  --app-dynw: calc(100%
-    - var(--app-pane_left_min)
-    - var(--app-pane_code_min)
-    - var(--app-pane_right_min)
+  --app-dynw: calc(
+    100% -
+    var(--app-pane_left_min) -
+    var(--app-pane_code_min) -
+    var(--app-pane_right_min)
   );
-  --app-dynh: calc(100%
-    - var(--app-header_h)
-    - var(--app-pane_out_min)
-    - var(--app-pane_datum_min)
-    - var(--app-pane_map_min)
+  --app-dynh: calc(
+    100% -
+    var(--app-header_h) -
+    var(--app-pane_out_min) -
+    var(--app-pane_datum_min) -
+    var(--app-pane_map_min)
   );
 
   position: absolute;
@@ -39,15 +41,22 @@
   display: grid;
   overflow: hidden;
   grid:
-    'nav_b code_b out'  var(--app-header_h)
-    'nav   code   out'  calc(var(--app-pane_out) * var(--app-dynh) + var(--app-pane_out_min))
+    'nav_b code_b out' var(--app-header_h)
+    'nav   code   out' calc(
+      var(--app-pane_out) *
+      var(--app-dynh) +
+      var(--app-pane_out_min)
+    )
     'nav   code   datum' minmax(var(--app-pane_datum_min), 1fr)
-    'nav   code   map'   calc(var(--app-pane_map) * var(--app-dynh) + var(--app-pane_map_min))
+    'nav   code   map' calc(
+      var(--app-pane_map) *
+      var(--app-dynh) +
+      var(--app-pane_map_min)
+    )
     /
     calc(var(--app-pane_left) * var(--app-dynw) + var(--app-pane_left_min))
     minmax(var(--app-pane_code_min), 1fr)
-    calc(var(--app-pane_right) * var(--app-dynw) + var(--app-pane_right_min))
-  ;
+    calc(var(--app-pane_right) * var(--app-dynw) + var(--app-pane_right_min));
   color: light-dark(hsl(0 0 20), hsl(0 0 93));
   background-color: light-dark(hsl(0 0 95), hsl(0 0 14));
 }
@@ -88,7 +97,7 @@
   grid-area: out;
   overflow: auto;
   overscroll-behavior: none;
-  border-bottom: 1px solid hsl(0 0 50 / .2);
+  border-bottom: 1px solid hsl(0 0 50 / 20%);
   scroll-padding-top: var(--app-header_h);
 }
 
@@ -113,15 +122,15 @@
 .app-run {
   border-radius: 1rem;
   min-width: 5rem;
-  margin-inline: .5rem;
+  margin-inline: 0.5rem;
   opacity: 1;
   transition: opacity 200ms ease;
   background-color: light-dark(hsl(0 0 20), hsl(0 0 90));
   color: light-dark(hsl(0 0 95), hsl(0 0 20));
 
   &:disabled {
-    opacity: .5;
-    filter: contrast(.5);
+    opacity: 50%;
+    filter: contrast(50%);
   }
   &::before {
     content: attr(aria-label);
@@ -149,14 +158,14 @@
 .app-nav_bar {
   grid-area: nav_b;
   display: flex;
-  background-color: hsl(0 0 50 / 0.1);
+  background-color: hsl(0 0 50 / 10%);
 }
 
 .app-theme_btn {
   width: 2rem;
   position: relative;
   transition: opacity 200ms ease;
-  opacity: .5;
+  opacity: 50%;
 
   &::before {
     content: '';
@@ -167,7 +176,7 @@
   }
   &:hover {
     opacity: 1;
-    background-color: hsl(0 0 50 / .2);
+    background-color: hsl(0 0 50 / 20%);
   }
   &[aria-checked='true'] {
     transform: scaleX(-1);
@@ -204,19 +213,19 @@
 .app-split_right,
 .app-split_map,
 .app-split_out {
-  font-size: .375rem;
+  font-size: 0.375rem;
   block-size: 1em;
-  margin-block: -.5em;
+  margin-block: -0.5em;
   /* monaco scroll slider overlap */
   position: relative;
   z-index: 100;
 
   &:active {
-    background-color: hsl(200 85 40 / 0.45);
+    background-color: hsl(200 85 40 / 45%);
   }
 }
 
 .app-dump_changes_btn {
   margin-inline: auto 1rem;
-  opacity: .7;
+  opacity: 70%;
 }

@@ -1,6 +1,7 @@
 /* TODO group separator */
-.tree-item:has(> [data-type~='column']) + .tree-item:not(:has(> [data-type~='column'])) {
-  margin-block-start: .5em;
+.tree-item:has(> [data-type~='column'])
++ .tree-item:not(:has(> [data-type~='column'])) {
+  margin-block-start: 0.5em;
 }
 
 .tree {
@@ -17,7 +18,7 @@
   display: block;
   padding-inline-start: calc(var(--tree-level) * 1em + 1em);
   padding-inline-end: 1lh; /* toggler placeholder */
-  padding-block: .25em;
+  padding-block: 0.25em;
   line-height: 1.5;
   color: light-dark(hsl(330 90 38), hsl(330 75 65));
 }
@@ -34,17 +35,17 @@
   cursor: pointer;
 
   &:hover {
-    background-color: hsl(0 0 50 / .2);
+    background-color: hsl(0 0 50 / 20%);
   }
   &[data-selected] {
-    background-color: hsl(0 0 50 / .3);
+    background-color: hsl(0 0 50 / 30%);
   }
 
   &[data-type~='index']::before,
   &[data-type~='trigger']::before,
   &[data-type~='constraint']::before {
     content: '... ';
-    opacity: .5;
+    opacity: 50%;
   }
 }
 
@@ -53,8 +54,9 @@
   width: 1lh;
   height: 1lh;
   background-color: currentcolor;
-  mask: url('./marker_file.svg') center / 1em no-repeat; /* TODO fallback marker */
-  opacity: .5;
+  /* TODO fallback marker */
+  mask: url('./marker_file.svg') center / 1em no-repeat;
+  opacity: 50%;
 
   &[aria-label~='database'] {
     mask-image: url('./marker_database.svg');
@@ -79,7 +81,7 @@
   }
   &[aria-label~='column_pk'] {
     mask-image: url('./marker_column_pk.svg');
-    opacity: .8;
+    opacity: 80%;
   }
   &[aria-label~='function'] {
     mask-image: url('./marker_function.svg');
@@ -106,10 +108,10 @@
 
 .tree-badge {
   float: inline-end;
-  margin-block: .25rem;
-  font-size: .75rem;
+  margin-block: 0.25rem;
+  font-size: 0.75rem;
   white-space: nowrap;
-  padding-inline: .5rem;
+  padding-inline: 0.5rem;
   border-radius: 1em;
   font-weight: 400;
   font-variant-numeric: proportional-nums;
@@ -118,8 +120,8 @@
 }
 
 .tree-descr {
-  font-size: .875rem;
-  opacity: .7;
+  font-size: 0.875rem;
+  opacity: 70%;
 }
 
 .tree-toggler {
@@ -145,13 +147,13 @@
   /* TODO .nav:hover */
   .tree:hover &::before {
     transition: opacity 200ms ease;
-    opacity: .3;
+    opacity: 30%;
   }
   &:hover::before {
-    opacity: .7 !important;
+    opacity: 70% !important;
   }
   &[aria-expanded='true']::before {
-    transform: rotate(.25turn);
+    transform: rotate(0.25turn);
   }
 
   /* spinner */
@@ -163,19 +165,23 @@
     width: 1em;
     height: 1em;
     box-sizing: border-box;
-    border: 2px solid hsl(from currentcolor h s l / .3);
+    border: 2px solid hsl(from currentcolor h s l / 30%);
     border-top-color: currentColor;
     border-radius: 50%;
     opacity: 0;
   }
   &:disabled::after {
-    opacity: .5;
-    transition: opacity 200ms cubic-bezier(1, 0, 1, .8); /* prevent blink on fast connection */
-    animation: 1000ms cubic-bezier(.7, .35, .7, .35) tree-spin infinite;
+    opacity: 50%;
+    transition: opacity 200ms cubic-bezier(1, 0, 1, 0.8); /* prevent blink on fast connection */
+    animation: 1000ms cubic-bezier(0.7, 0.35, 0.7, 0.35) tree-spin infinite;
   }
 }
 
 @keyframes tree-spin {
-  from { transform: rotate(0); }
-  to { transform: rotate(1turn); }
+  from {
+    transform: rotate(0);
+  }
+  to {
+    transform: rotate(1turn);
+  }
 }
