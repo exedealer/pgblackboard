@@ -149,8 +149,8 @@
     transition: opacity 200ms ease;
     opacity: 30%;
   }
-  &:hover::before {
-    opacity: 70% !important;
+  .tree &:hover::before {
+    opacity: 70%;
   }
   &[aria-expanded='true']::before {
     transform: rotate(0.25turn);
