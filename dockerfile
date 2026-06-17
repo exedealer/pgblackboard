@@ -1,6 +1,7 @@
 # https://hub.docker.com/_/rust/tags?name=alpine
 FROM rust:1.96-alpine3.23 AS dev
-RUN apk add --no-cache make esbuild pkgconf openssl-dev
+RUN apk add --no-cache make esbuild pkgconf openssl-dev \
+  && apk add --no-cache --repository https://dl-cdn.alpinelinux.org/alpine/edge/testing biome
 
 ADD --unpack \
   https://github.com/oxc-project/oxc/releases/download/apps_v1.69.0/oxlint-x86_64-unknown-linux-musl.tar.gz \
