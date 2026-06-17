@@ -647,9 +647,9 @@ const methods = {
       })[0]
     );
     if (!feature) return; // TODO clear highlight
-    // const { frame_idx, row_idx } = feature.properties;
-    // this.$store.set_selected_rowcol(frame_idx, row_idx);
-    // this.$broadcast('req_row_navigate');
+    const { frame_idx, row_idx } = feature.properties;
+    this.$store.set_selected_rowcol(frame_idx, row_idx);
+    this.$broadcast('req_row_navigate');
     // TODO zoom to feature extent
   },
 
