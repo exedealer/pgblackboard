@@ -57,7 +57,6 @@
 }
 
 .out-show_on_map_button {
-  /* user-select: all; prevent linebreak on copy-paste */
   all: unset;
   border-radius: 50%;
   font-size: 0.75em;
@@ -73,6 +72,7 @@
   );
   opacity: 70%;
   transition: opacity 200ms ease;
+  user-select: none; /* no text selection on double click */
 
   &:hover {
     opacity: 100%;
