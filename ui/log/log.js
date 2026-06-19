@@ -23,7 +23,7 @@ const methods = {
   },
   _render_header_content() {
     const can_wake = this.$store.can_wake();
-    const { suspended, loading, messages } = this.$store.out;
+    const { suspended, loading, connecting, messages } = this.$store.out;
     const has_errors = messages.some(m => m.tag == 'error');
 
     if (suspended && suspended.reason == 'idle_in_transaction') {
@@ -56,12 +56,21 @@ const methods = {
       ];
     }
 
+    if (loading && connecting) {
+      return [
+        { tag: 'span', class: 'log-header_icon log-icon_ellipsis' },
+        { tag: 'span', class: 'log-header_text', innerHTML: 'CONNECTING' },
+      ];
+    }
+
     if (loading) {
       return [
         { tag: 'span', class: 'log-header_icon log-icon_ellipsis' },
         { tag: 'span', class: 'log-header_text', innerHTML: 'RUNNING' },
       ];
     }
+
+
 
     if (has_errors) {
       return [

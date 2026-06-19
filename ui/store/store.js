@@ -62,6 +62,7 @@ export class Store {
     /** @type {AbortController} */
     aborter: null,
     loading: false,
+    connecting: false,
     suspended: null,
     /** @type {string} */
     db: null,
@@ -548,6 +549,7 @@ export class Store {
       selected_row_idx: null,
       aborter: new AbortController(),
       loading: true,
+      connecting: true,
       suspended: null,
     };
     const out = this.out;
@@ -597,6 +599,7 @@ export class Store {
       );
       for await (const lines of msg_stream)
       for (const line of lines) {
+        out.connecting = false;
         const [tag, payload] = JSON.parse(line);
         out.suspended = null;
         switch (tag) {
