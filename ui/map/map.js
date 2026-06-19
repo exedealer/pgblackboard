@@ -88,8 +88,16 @@ const methods = {
     const selected_features = this.$cached(this.get_selected_features);
 
     const modified_features_ids = modified_features.full.features.map(f => f.properties.id);
-    const overlays_visibility = Array.from(this.get_geomcols(), ({ col }) => Boolean(col.show_on_map));
     const overlays_hues = Array.from(this.get_geomcols(), ({ col }) => col.hue);
+
+    // first I use array of booleans as more simple structure,
+    // but maplibre evaluates layer filters inconsistenlty with global state.
+    // and 'at' operation on empty global array causes
+    // 'Array index out of bounds: 0 > -1.' (maplibre v5.16.0)
+    const overlays_visible = Array.from(
+      this.get_geomcols(),
+      ({ col }, overlay_idx) => col.show_on_map ? [overlay_idx] : [],
+    ).flat();
 
     const style = {
       version: 8,
@@ -101,7 +109,7 @@ const methods = {
         is_dark: { default: is_dark },
         modified_features_ids: { default: modified_features_ids },
         overlays_hues: { default: overlays_hues },
-        overlays_visibility: { default: overlays_visibility },
+        overlays_visible: { default: overlays_visible },
       },
 
       glyphs: glyphs_url + '#/{fontstack}/{range}',
@@ -229,7 +237,7 @@ const methods = {
             'all',
             ['==', ['geometry-type'], 'Polygon'],
             ['!', ['in', ['get', 'id'], ['global-state', 'modified_features_ids']]],
-            ['at', ['get', 'overlay_idx'], ['global-state', 'overlays_visibility']],
+            ['in', ['get', 'overlay_idx'], ['global-state', 'overlays_visible']],
           ],
           paint: {
             'fill-opacity': .4,
@@ -246,7 +254,7 @@ const methods = {
           filter: [
             'all',
             ['==', ['geometry-type'], 'Polygon'],
-            ['at', ['get', 'overlay_idx'], ['global-state', 'overlays_visibility']],
+            ['in', ['get', 'overlay_idx'], ['global-state', 'overlays_visible']],
           ],
           paint: {
             'fill-opacity': .4,
@@ -263,7 +271,7 @@ const methods = {
           filter: [
             'all',
             ['==', ['geometry-type'], 'Polygon'],
-            ['at', ['get', 'overlay_idx'], ['global-state', 'overlays_visibility']],
+            ['in', ['get', 'overlay_idx'], ['global-state', 'overlays_visible']],
           ],
           paint: {
             'fill-opacity': .2,
@@ -281,7 +289,7 @@ const methods = {
             'all',
             ['==', ['geometry-type'], 'LineString'],
             ['!', ['in', ['get', 'id'], ['global-state', 'modified_features_ids']]],
-            ['at', ['get', 'overlay_idx'], ['global-state', 'overlays_visibility']],
+            ['in', ['get', 'overlay_idx'], ['global-state', 'overlays_visible']],
           ],
           paint: {
             'line-width': 2,
@@ -298,7 +306,7 @@ const methods = {
           filter: [
             'all',
             ['==', ['geometry-type'], 'LineString'],
-            ['at', ['get', 'overlay_idx'], ['global-state', 'overlays_visibility']],
+            ['in', ['get', 'overlay_idx'], ['global-state', 'overlays_visible']],
           ],
           paint: {
             'line-width': 2,
@@ -315,7 +323,7 @@ const methods = {
           filter: [
             'all',
             ['<=', ['zoom'], ['get', 'zoom']],
-            ['at', ['get', 'overlay_idx'], ['global-state', 'overlays_visibility']],
+            ['in', ['get', 'overlay_idx'], ['global-state', 'overlays_visible']],
           ],
           paint: {
             'circle-pitch-alignment': 'map',
@@ -336,7 +344,7 @@ const methods = {
           filter: [
             'all',
             ['<=', ['zoom'], ['get', 'zoom']],
-            ['at', ['get', 'overlay_idx'], ['global-state', 'overlays_visibility']],
+            ['in', ['get', 'overlay_idx'], ['global-state', 'overlays_visible']],
           ],
           paint: {
             'circle-pitch-alignment': 'map',
@@ -357,7 +365,7 @@ const methods = {
           filter: [
             'all',
             ['!=', ['geometry-type'], 'Point'],
-            ['at', ['get', 'overlay_idx'], ['global-state', 'overlays_visibility']],
+            ['in', ['get', 'overlay_idx'], ['global-state', 'overlays_visible']],
           ],
           paint: {
             'line-width': 1,
@@ -374,7 +382,7 @@ const methods = {
           filter: [
             'all',
             ['!=', ['geometry-type'], 'Point'],
-            ['at', ['get', 'overlay_idx'], ['global-state', 'overlays_visibility']],
+            ['in', ['get', 'overlay_idx'], ['global-state', 'overlays_visible']],
           ],
           paint: {
             'circle-radius': 2,
@@ -391,7 +399,7 @@ const methods = {
           filter: [
             'all',
             ['==', ['geometry-type'], 'Point'],
-            ['at', ['get', 'overlay_idx'], ['global-state', 'overlays_visibility']],
+            ['in', ['get', 'overlay_idx'], ['global-state', 'overlays_visible']],
             ['!', ['in', ['get', 'id'], ['global-state', 'modified_features_ids']]],
           ],
           paint: {
@@ -420,7 +428,7 @@ const methods = {
           filter: [
             'all',
             ['==', ['geometry-type'], 'Point'],
-            ['at', ['get', 'overlay_idx'], ['global-state', 'overlays_visibility']],
+            ['in', ['get', 'overlay_idx'], ['global-state', 'overlays_visible']],
           ],
           paint: {
             'circle-radius': 2,
@@ -474,7 +482,7 @@ const methods = {
             'all',
             ['==', ['geometry-type'], 'Point'],
             // ['<=', ['zoom'], ['coalesce', ['get', 'zoom'], 100]],
-            ['at', ['get', 'overlay_idx'], ['global-state', 'overlays_visibility']],
+            ['in', ['get', 'overlay_idx'], ['global-state', 'overlays_visible']],
           ],
           paint: {
             'circle-radius': 5,
