@@ -3,13 +3,6 @@ FROM rust:1.96-alpine3.23 AS dev
 RUN apk add --no-cache make esbuild pkgconf openssl-dev \
   && apk add --no-cache --repository https://dl-cdn.alpinelinux.org/alpine/edge/testing biome
 
-ADD --unpack \
-  https://github.com/oxc-project/oxc/releases/download/apps_v1.69.0/oxlint-x86_64-unknown-linux-musl.tar.gz \
-  https://github.com/oxc-project/oxc/releases/download/apps_v1.69.0/oxfmt-x86_64-unknown-linux-musl.tar.gz \
-  /usr/local/bin
-RUN mv /usr/local/bin/oxlint* /usr/local/bin/oxlint \
-  && mv /usr/local/bin/oxfmt* /usr/local/bin/oxfmt
-
 WORKDIR /app
 EXPOSE 7890
 COPY Cargo.toml Cargo.lock ./
