@@ -99,7 +99,7 @@ fn scan_line_comment(s: &mut &[u8]) {
   // https://github.com/postgres/postgres/blob/f5cc81719e6da4cbdb1f797c48b693e91018153a/src/fe_utils/psqlscan.l#L154
   if let Some(tail) = s.strip_prefix(b"--") {
     *s = tail;
-    while !matches!(s.split_off_first(), Some(b'\n' | b'\r')) {}
+    while !matches!(s.split_off_first(), Some(b'\n' | b'\r') | None) {}
   }
 }
 
@@ -340,6 +340,12 @@ mod tests {
     let sql = br"-- ;
       SELECT 1; _";
     assert_eq!(statement_boundary(sql), sql.len() - 1);
+  }
+
+  #[test]
+  fn line_comment_incomplete() {
+    let sql = br"-- hello";
+    assert_eq!(statement_boundary(sql), sql.len());
   }
 
   #[test]
