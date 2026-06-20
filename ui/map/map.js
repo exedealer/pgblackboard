@@ -66,7 +66,7 @@ const methods = {
     return { 'req_map_navigate': this.on_req_map_navigate };
   },
 
-  /** @returns {import('../store.js').Store} */
+  /** @returns {import('../store/store.js').Store} */
   get_store() {
     return this.$store;
   },
@@ -86,6 +86,8 @@ const methods = {
     const original_features = this.$cached(this.get_original_features);
     const modified_features = this.$cached(this.get_modified_features);
     const selected_features = this.$cached(this.get_selected_features);
+
+    console.log({ selected_features });
 
     const modified_features_ids = modified_features.full.features.map(f => f.properties.id);
     const overlays_hues = Array.from(this.get_geomcols(), ({ col }) => col.hue);
@@ -563,7 +565,7 @@ const methods = {
         const f = {
           type: 'Feature',
           properties: { frame_idx, row_idx, overlay_idx, id },
-          geometry,
+          geometry: singular_geom,
         };
         features.push(f);
         dict_features.push(f);
