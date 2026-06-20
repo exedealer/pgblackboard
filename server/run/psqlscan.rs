@@ -208,15 +208,18 @@ fn scan_dollar_quoted(s: &mut &[u8]) {
 
 fn scan_ident<'a>(s: &mut &'a [u8]) -> Option<&'a [u8]> {
   // https://github.com/postgres/postgres/blob/f5cc81719e6da4cbdb1f797c48b693e91018153a/src/fe_utils/psqlscan.l#L276
-  if !matches!(s, [b'a'..=b'z' | b'A'..=b'Z' | b'_' | 0x80.., ..]) {
+  let [b'A'..=b'Z' | b'a'..=b'z' | b'_' | 0o200.., ..] = s else {
     return None;
+  };
+  let orig = *s;
+  while let [
+    b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'_' | b'$' | 0o200..,
+    tail @ ..,
+  ] = s
+  {
+    *s = tail;
   }
-  let is_ident_cont =
-    |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'$' || b >= 0o200;
-  let end = s.iter().position(|&b| !is_ident_cont(b)).unwrap_or(s.len());
-  let ident;
-  (ident, *s) = s.split_at(end);
-  Some(ident)
+  Some(&orig[..orig.len() - s.len()])
 }
 
 #[cfg(test)]
