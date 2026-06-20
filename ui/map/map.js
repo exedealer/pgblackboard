@@ -87,8 +87,6 @@ const methods = {
     const modified_features = this.$cached(this.get_modified_features);
     const selected_features = this.$cached(this.get_selected_features);
 
-    console.log({ selected_features });
-
     const modified_features_ids = modified_features.full.features.map(f => f.properties.id);
     const overlays_hues = Array.from(this.get_geomcols(), ({ col }) => col.hue);
 
@@ -658,7 +656,8 @@ const methods = {
     );
     if (!feature) return; // TODO clear highlight
     const { frame_idx, row_idx } = feature.properties;
-    this.$store.set_selected_rowcol(frame_idx, row_idx);
+    const store = this.get_store();
+    store.set_selected_rowcol(frame_idx, row_idx);
     this.$broadcast('req_row_navigate');
     // TODO zoom to feature extent
   },
