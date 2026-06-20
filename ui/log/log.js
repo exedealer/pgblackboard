@@ -1,6 +1,7 @@
 const methods = {
   _render() {
-    const { messages } = this.$store.out;
+    const store = this.get_store();
+    const { messages } = store.out;
 
     return {
       tag: 'div',
@@ -22,8 +23,9 @@ const methods = {
     };
   },
   _render_header_content() {
-    const can_wake = this.$store.can_wake();
-    const { suspended, loading, connecting, messages } = this.$store.out;
+    const store = this.get_store();
+    const can_wake = store.can_wake();
+    const { suspended, loading, connecting, messages } = store.out;
     const has_errors = messages.some(m => m.tag == 'error');
 
     if (suspended && suspended.reason == 'idle_in_transaction') {
@@ -143,6 +145,11 @@ const methods = {
   },
   wake() {
     this.$store.wake();
+  },
+
+  /** @returns {import('../store/store.js').Store} */
+  get_store() {
+    return this.$store;
   },
 };
 

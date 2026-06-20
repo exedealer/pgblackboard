@@ -2,8 +2,9 @@ import { editor } from '../_vendor/monaco.js';
 
 const methods = {
   _render() {
-    const { frame_idx, row_idx, col_idx } = this.$store.get_selected_rowcol();
-    const { value } = this.$store.get_datum(frame_idx, row_idx, col_idx);
+    const store = this.get_store();
+    const { frame_idx, row_idx, col_idx } = store.get_selected_rowcol();
+    const { value } = store.get_datum(frame_idx, row_idx, col_idx);
 
     return {
       tag: 'div',
@@ -62,7 +63,7 @@ const methods = {
     window.debug_editor_datum = this._editor;
 
     this.$watch(
-      _ => this.$store.get_selected_rowcol(),
+      _ => this.get_store().get_selected_rowcol(),
       this._watch_selected_rowcol,
       { immediate: true },
     );
@@ -78,7 +79,10 @@ const methods = {
     // TODO special view when no selected cell
     // TODO special case when inserting row, empty_val should use default value
 
-    const { type, att_name, att_notnull, original_value, value } = this.$store.get_datum(frame_idx, row_idx, col_idx);
+    const store = this.get_store();
+    // TODO fix no refresh on Revert changes
+    const { type, att_name, att_notnull, original_value, value } =
+      store.get_datum(frame_idx, row_idx, col_idx);
     const syntax = this._get_language_of_pgtype(type);
     const model = editor.createModel(value || '', syntax);
 
@@ -99,7 +103,7 @@ const methods = {
       // TODO avoid getValue() on each keypress.
       // We need to show only the starting piece in the table cell
       const new_val = this._model.getValue() || blank;
-      this.$store.edit_row(frame_idx, row_idx, col_idx, new_val);
+      store.edit_row(frame_idx, row_idx, col_idx, new_val);
     });
   },
   _on_req_datum_focus() {
@@ -108,10 +112,10 @@ const methods = {
     this._editor.focus();
   },
   _on_focus() {
-    this.$store.sync_datum_focused(true);
+    this.get_store().sync_datum_focused(true);
   },
   _on_blur() {
-    this.$store.sync_datum_focused(false);
+    this.get_store().sync_datum_focused(false);
   },
   _on_keyup(e) {
     if (e.code == 'Escape' && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
@@ -122,6 +126,11 @@ const methods = {
     if (type == 'json' || type == 'jsonb') return 'json';
     if (type == 'xml') return 'xml';
     return null;
+  },
+
+  /** @returns {import('../store/store.js').Store} */
+  get_store() {
+    return this.$store;
   },
 };
 

@@ -529,6 +529,7 @@ export class Store {
     const headers = { 'x-pgbb-auth': token };
     const arg = new URLSearchParams({ user, id });
     const resp = await fetch('api/wake?' + arg, { method: 'POST', headers });
+    // TODO report error
     if (!resp.ok) throw Error('wake error', { cause: resp });
   }
 
@@ -548,6 +549,7 @@ export class Store {
       selected_frame_idx: null,
       selected_row_idx: null,
       aborter: new AbortController(),
+      // TODO loading: '' | 'connecting' | 'running' | 'suspended_on_page' | 'suspended_on_commit'
       loading: true,
       connecting: true,
       suspended: null,
