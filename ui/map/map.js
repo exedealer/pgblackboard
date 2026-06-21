@@ -137,7 +137,6 @@ const methods = {
           type: 'raster',
           tileSize: 256,
           maxzoom: 22,
-          // tiles: Array.from('0123', d => `https://mt${d}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}`),
           tiles: [
             'https://mt0.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
             'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
@@ -148,7 +147,6 @@ const methods = {
         'sat_bing': {
           type: 'raster',
           tileSize: 256,
-          // tiles: Array.from('01234567', d => `http://ecn.t${d}.tiles.virtualearth.net/tiles/a{quadkey}.jpeg?g=1`),
           tiles: [
             'https://ecn.t0.tiles.virtualearth.net/tiles/a{quadkey}.jpeg?g=1',
             'https://ecn.t1.tiles.virtualearth.net/tiles/a{quadkey}.jpeg?g=1',
@@ -473,7 +471,6 @@ const methods = {
             'text-anchor': 'bottom', // prevent features from being overlapped by city labels
           },
         },
-        // TODO 'circle-pitch-alignment': 'map' for collapsed points
         {
           id: 'hl_point',
           type: 'circle',
@@ -481,7 +478,6 @@ const methods = {
           filter: [
             'all',
             ['==', ['geometry-type'], 'Point'],
-            // ['<=', ['zoom'], ['coalesce', ['get', 'zoom'], 100]],
             ['in', ['get', 'overlay_idx'], ['global-state', 'overlays_visible']],
           ],
           paint: {
@@ -492,41 +488,8 @@ const methods = {
               'hsl(0 0% 90%)', // dark
               'hsl(0 0% 30%)', // light
             ],
-
-            // 'circle-radius': 3,
-            // 'circle-stroke-width': 1,
-            // 'circle-color':'hsl(0 0% 100%)',
-            // 'circle-stroke-color': ['to-color', ['concat', 'hsl(',
-            //   ['at', ['get', 'overlay_idx'], ['global-state', 'overlays_hues']],
-            //   ['case', ['global-state', 'is_dark'],
-            //     '  90% 50%)', // dark
-            //     ' 100% 50%)', // light
-            //   ],
-            // ]],
           },
         },
-        // {
-        //   id: 'hl_point',
-        //   type: 'symbol',
-        //   filter: ['==', ['geometry-type'], 'Point'],
-        //   source: 'highlight',
-        //   paint: {
-        //     // 'icon-color': '#fff',
-        //     // 'icon-halo-color': 'red',
-        //     // 'icon-halo-width': 2,
-        //   },
-        //   layout: {
-        //     // 'icon-image': 'drop_marker',
-        //     'icon-image': 'drop_white',
-        //     'icon-anchor': 'bottom',
-        //     'icon-allow-overlap': true,
-        //   },
-        //   metadata: {
-        //     alt_layout: {
-        //       'icon-image': 'drop_black',
-        //     },
-        //   },
-        // },
       ],
     };
 
@@ -559,10 +522,11 @@ const methods = {
 
       for (const singular_geom of geometry.geometries) {
         const [w, s, e, n] = geojson_bbox(singular_geom);
+        const span = Math.hypot((e - w) / 360, (s - n) / 180); // TODO mercator
 
         const f = {
           type: 'Feature',
-          properties: { frame_idx, row_idx, overlay_idx, id },
+          properties: { id, frame_idx, row_idx, overlay_idx, span },
           geometry: singular_geom,
         };
         features.push(f);
@@ -572,7 +536,6 @@ const methods = {
         // geojson_extend_bbox(bbox, e, n);
         if (singular_geom.type == 'Point') continue;
 
-        const span = Math.hypot((e - w) / 360, (s - n) / 180); // TODO mercator
         const zoom = Math.log2(granularity / span);
         const coordinates = [(w + e) * .5, (s + n) * .5];
         pins.push({
@@ -652,7 +615,9 @@ const methods = {
           'original_fill',
           'modified_fill',
         ],
-      })[0]
+      })
+      // pick the smallest polygon
+      .sort((a, b) => a.properties.span > b.properties.span)[0]
     );
     if (!feature) return; // TODO clear highlight
     const { frame_idx, row_idx } = feature.properties;
