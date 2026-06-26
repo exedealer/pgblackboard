@@ -9,8 +9,11 @@
   font-stretch: normal;
   text-transform: uppercase;
   text-align: center;
-  cursor: pointer;
   white-space: nowrap;
+
+  &:enabled {
+    cursor: pointer;
+  }
 }
 
 .app {
