@@ -34,11 +34,11 @@
   }
 
   &:hover {
-    background-color: hsl(0 0 50 / 10%);
+    background-color: hsl(0 0 50 / 20%);
   }
 
   .drafts-item[aria-selected='true'] & {
-    background-color: hsl(0 0 50 / 25%);
+    background-color: hsl(0 0 50 / 30%);
   }
 }
 
