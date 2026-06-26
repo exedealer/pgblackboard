@@ -1,3 +1,4 @@
+mod copyout;
 mod psqlscan;
 
 use axum::BoxError;
@@ -13,6 +14,8 @@ use std::iter;
 
 use crate::{AppError, pg};
 use psqlscan::statement_boundary;
+
+pub use copyout::{CopyoutStore, serve_copyout};
 
 #[derive(Deserialize)]
 pub struct WakeParams {
@@ -41,6 +44,7 @@ pub struct RunParams {
 
 pub async fn api_run(
   axum::extract::State(notifier): axum::extract::State<Notifier>,
+  copyouts: axum::extract::State<CopyoutStore>,
   axum::extract::Extension(pgctor): axum::extract::Extension<pg::Connector>,
   axum::extract::Query(RunParams { db, tz }): axum::extract::Query<RunParams>,
   // TODO how to accept large sql dump?
@@ -110,7 +114,7 @@ pub async fn api_run(
         log::debug!("client gone, sending CancelRequest to postgres");
         let _ = pgconn.cancel().await; // TODO timeout
       }
-      res = api_run_inner(&mut pgconn, &mut msgw, &script) => {
+      res = api_run_inner(&mut pgconn, &mut msgw, &copyouts, &script) => {
         if let Err(err) = res {
           log::error!("failed to execute script: {err}"); // TODO log some request context
           msgw.write_error(err.as_ref());
@@ -121,13 +125,28 @@ pub async fn api_run(
     let _ = pgconn.close().await;
   });
 
+  let heartbeat_interval = std::time::Duration::from_secs(10); // TODO fix hardcode
+  let mut idle_timer = Box::pin(tokio::time::sleep(heartbeat_interval));
   let s = stream::poll_fn(move |cx| {
-    rx.poll_recv(cx).map(|chunk| match chunk {
-      Some(fin) if fin.is_empty() => None, // send final chunk `0\r\n\r\n`
-      Some(data) => Some(Ok(data)),
-      // TODO log error?
-      None => Some(Err("incompete response")), // drop connection
-    })
+    use std::task::Poll;
+    let res = match rx.poll_recv(cx) {
+      Poll::Ready(val) => Poll::Ready(match val {
+        Some(fin) if fin.is_empty() => None, // send final chunk `0\r\n\r\n`
+        Some(chunk) => Some(Ok(chunk)),
+        None => Some(Err("incomplete response")), // drop connection, TODO log error?
+      }),
+      Poll::Pending => {
+        // TODO consider emit just 0x20 space
+        // so LineDecoder will decode it as empty array of lines
+        let alive_msg = Bytes::from_static(b"[\"alive\"]\n");
+        idle_timer.as_mut().poll(cx).map(|_| Some(Ok(alive_msg)))
+      }
+    };
+    if res.is_ready() {
+      use tokio::time::Instant;
+      idle_timer.as_mut().reset(Instant::now() + heartbeat_interval);
+    }
+    res
   });
   // TODO consider https://www.rfc-editor.org/rfc/rfc7464
   axum::response::Response::builder()
@@ -144,6 +163,7 @@ pub async fn api_run(
 async fn api_run_inner(
   pgconn: &mut pg::Connection,
   msgw: &mut MessageWriter,
+  copyouts: &CopyoutStore,
   script: &[u8],
 ) -> Result<(), BoxError> {
   // TODO parse \connect "database" here
@@ -296,28 +316,11 @@ async fn api_run_inner(
         msgw.flush(None).await;
       }
 
-      let heartbeat_interval = std::time::Duration::from_secs(10); // TODO fix hardcode
-      let msg_fut = pgconn.recv_message();
-      let msg_fut = tokio::time::timeout(heartbeat_interval, msg_fut);
-      let Ok(msg_res) = msg_fut.await else {
-        // TODO should not count "alive" messages to n_bytes_sent?
-        msgw.write_alive_if_drained();
-        continue;
-      };
-
+      let msg_res = pgconn.recv_message().await;
       match msg_res.map_err(expose_dberror)? {
         pg::DataRow(row) => {
           msgw.write_row(row);
           n_rows_written += 1;
-        }
-        pg::CopyData(_data) => {
-          // prefer not rely on CopyData contains exact one row
-          // TODO should open separate channel,
-          // should not stream copy output through message stream
-          // because fetch gives no control over backpressure in js space
-          // TODO we can wrap mutliple copy outputs to tar/zip file
-          // in case of multiple COPY queries.
-          // but symmetry between COPY TO / COPY FROM will be broken
         }
         pg::CopyInResponse(..) => {
           pgconn.send_copy_fail();
@@ -326,9 +329,14 @@ async fn api_run_inner(
           // client should do new request with file,
           // we should access request body stream here somehow and pipe it to pg
         }
-        pg::CopyOutResponse(..) => {} // TODO error if binary
-        pg::CopyDone => {}
-
+        pg::CopyOutResponse(_fmt) => {
+          // TODO generate filename source_TIMESTAMP.tsv
+          let cout = copyouts.add_new();
+          msgw.write_copyout(cout.id());
+          n_bytes_sent += msgw.len();
+          msgw.flush(None).await;
+          cout.pump(pgconn).await.map_err(expose_dberror)?;
+        }
         // pg::BindComplete => {}
         // pg::ParameterStatus { .. } => {}
         // pg::NotificationResponse { .. } => {} // TODO ignore?
@@ -346,7 +354,7 @@ async fn api_run_inner(
 
         _ => {}
       }
-    }
+    } // loop
 
     stmt_pos_utf16 += str::from_utf8(&stmt)
       // TODO its not ok to report error after succesfull executing invalid query,
@@ -450,6 +458,11 @@ impl MessageWriter {
     write!(self.buf, "[\"row\", [{elems}]]\n").unwrap();
   }
 
+  fn write_copyout(&mut self, id: impl std::fmt::Display) {
+    // TODO escape id
+    write!(self.buf, "[\"copyout\", {{\"id\": \"{id}\"}}]\n").unwrap();
+  }
+
   fn write_complete(&mut self, tag: &[u8]) {
     let payload = json_escape_lossy(tag);
     write!(self.buf, "[\"complete\", \"{payload}\"]\n").unwrap();
@@ -460,18 +473,7 @@ impl MessageWriter {
     write!(self.buf, "[\"notice\", {payload}]\n").unwrap();
   }
 
-  fn write_alive_if_drained(&mut self) {
-    if self.buf.is_empty() {
-      // TODO may be we can just emit 0x20 space?
-      // so LineDecoder will decode it as empty array of lines
-      // "[]" | "null" | "\x20"
-      write!(self.buf, "[\"alive\"]\n").unwrap();
-    }
-  }
-
   fn write_error(&mut self, err: &(dyn std::error::Error + 'static)) {
-    // TODO position_utf16
-    // use std::error::Error as _;
     if let Some(dberr) = err.downcast_ref() {
       let payload = dberror_json(dberr);
       write!(self.buf, "[\"error\", {payload}]\n").unwrap();

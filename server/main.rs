@@ -11,7 +11,7 @@ use serde::Deserialize;
 use std::ffi::CString;
 use std::sync::Arc;
 
-use run::{Notifier, api_run, api_wake};
+use run::{CopyoutStore, Notifier, api_run, api_wake, serve_copyout};
 
 fn main() -> Result<(), axum::BoxError> {
   use axum::http::Uri;
@@ -78,7 +78,8 @@ fn main() -> Result<(), axum::BoxError> {
 
   let auth = auth::Authenticator::new()?;
   let notifier = Notifier::new();
-  let state = Arc::new(AppState { pgctor, auth, notifier });
+  let copyouts = CopyoutStore::new();
+  let state = Arc::new(AppState { pgctor, auth, notifier, copyouts });
 
   // TODO request body size limit https://docs.rs/tower-http/latest/tower_http/limit/index.html
   let app = axum::Router::new()
@@ -92,6 +93,7 @@ fn main() -> Result<(), axum::BoxError> {
     ))
     // public routes
     .route("/api/auth", axum::routing::post(api_auth))
+    .route("/copyout/{id}", axum::routing::get(serve_copyout))
     .route("/favicon.ico", axum::routing::get(serve_favicon_ico))
     .fallback(ui::serve_ui)
     .layer(axum::middleware::from_fn(log_request))
@@ -139,11 +141,18 @@ struct AppState {
   pgctor: pg::Connector,
   auth: auth::Authenticator,
   notifier: Notifier,
+  copyouts: CopyoutStore,
 }
 
 impl axum::extract::FromRef<Arc<AppState>> for Notifier {
   fn from_ref(state: &Arc<AppState>) -> Self {
     state.notifier.clone()
+  }
+}
+
+impl axum::extract::FromRef<Arc<AppState>> for CopyoutStore {
+  fn from_ref(state: &Arc<AppState>) -> Self {
+    state.copyouts.clone()
   }
 }
 

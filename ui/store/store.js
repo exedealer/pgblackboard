@@ -665,6 +665,17 @@ export class Store {
           case 'suspended':
             out.suspended = payload;
             break;
+          case 'copyout': {
+            const ts = new Date().toISOString().replace(
+              /^(\d+)-(\d+)-(\d+)T(\d+):(\d+):(\d+).*/,
+              '$1$2$3_$4$5$6', // YYYYMMDD_HHmmss
+            )
+            const a = document.createElement('a');
+            a.href = `copyout/${encodeURIComponent(payload.id)}`;
+            a.download = `copyout_${ts}`;
+            a.click();
+            break;
+          }
         }
       }
     } catch (ex) {
