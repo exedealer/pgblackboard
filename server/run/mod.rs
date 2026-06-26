@@ -125,28 +125,27 @@ pub async fn api_run(
     let _ = pgconn.close().await;
   });
 
-  let heartbeat_interval = std::time::Duration::from_secs(10); // TODO fix hardcode
+  // 15sec is common practise for SSE keepalive interval
+  // TODO do not hardcode
+  let heartbeat_interval = std::time::Duration::from_secs(15);
   let mut idle_timer = Box::pin(tokio::time::sleep(heartbeat_interval));
   let s = stream::poll_fn(move |cx| {
     use std::task::Poll;
     let res = match rx.poll_recv(cx) {
-      Poll::Ready(val) => Poll::Ready(match val {
+      Poll::Ready(val) => match val {
         Some(fin) if fin.is_empty() => None, // send final chunk `0\r\n\r\n`
         Some(chunk) => Some(Ok(chunk)),
         None => Some(Err("incomplete response")), // drop connection, TODO log error?
-      }),
-      Poll::Pending => {
+      },
+      Poll::Pending => match idle_timer.as_mut().poll(cx) {
+        Poll::Pending => return Poll::Pending,
         // TODO consider emit just 0x20 space
         // so LineDecoder will decode it as empty array of lines
-        let alive_msg = Bytes::from_static(b"[\"alive\"]\n");
-        idle_timer.as_mut().poll(cx).map(|_| Some(Ok(alive_msg)))
-      }
+        Poll::Ready(_) => Some(Ok(Bytes::from_static(b"[\"alive\"]\n"))),
+      },
     };
-    if res.is_ready() {
-      use tokio::time::Instant;
-      idle_timer.as_mut().reset(Instant::now() + heartbeat_interval);
-    }
-    res
+    idle_timer.as_mut().reset(tokio::time::Instant::now() + heartbeat_interval);
+    Poll::Ready(res)
   });
   // TODO consider https://www.rfc-editor.org/rfc/rfc7464
   axum::response::Response::builder()
