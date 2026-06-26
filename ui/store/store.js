@@ -603,7 +603,9 @@ export class Store {
       for (const line of lines) {
         out.connecting = false;
         const [tag, payload] = JSON.parse(line);
-        out.suspended = null;
+        if (tag != 'alive') {
+          out.suspended = null;
+        }
         switch (tag) {
           case 'start':
             stmt_pos = payload.position_utf16;
