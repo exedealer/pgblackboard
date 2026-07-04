@@ -2,7 +2,11 @@ import { editor, Uri } from '../_vendor/monaco.js';
 import { hexwkb2t } from './wkb2t.js';
 
 export class Store {
-  dark = { sys: false, on: null };
+  dark = {
+    sys: false,
+    /** @type {boolean | null} */
+    on: null,
+  };
   timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   panes = { left: .2, right: .6, out: 1, map: 0 };
   auth = {
@@ -54,6 +58,21 @@ export class Store {
      * }[]}
      */
     frames: [], // TODO frames -> tables
+    /** @type {(
+      { tag: 'complete', payload: string } |
+      {
+        tag: 'error' | 'notice',
+        position: number,
+        payload: {
+          severity: string,
+          severity_en: string,
+          code: string,
+          message: string,
+          detail: string,
+          hint: string,
+        }
+      }
+    )[]} */
     messages: [],
     /** @type {number} */
     selected_frame_idx: null,
@@ -63,10 +82,15 @@ export class Store {
     aborter: null,
     loading: false,
     connecting: false,
+    /** @type {{
+      token: string,
+      reason: 'idle_in_transaction' | 'traffic_limit_exceeded',
+      consumed: boolean,
+      error: string,
+    }} */
     suspended: null,
     /** @type {string} */
     db: null,
-
     // TODO draft_ver: null,
     // check if draft modified before
   };
@@ -295,19 +319,19 @@ export class Store {
     draft.loading = false;
   }
 
-  async _api(api, qs, body) {
-    qs = JSON.parse(JSON.stringify(qs)); // rm undefined
-    const resp = await fetch('?' + new URLSearchParams({ api, ...qs }), {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json; charset=utf-8',
-        'x-pgbb-auth': this.auth?.token,
-      },
-      body: JSON.stringify(body),
-    });
-    if (!resp.ok) throw Error(`${resp.status} ${resp.statusText}`);
-    return resp.json();
-  }
+  // async _api(api, qs, body) {
+  //   qs = JSON.parse(JSON.stringify(qs)); // rm undefined
+  //   const resp = await fetch('?' + new URLSearchParams({ api, ...qs }), {
+  //     method: 'POST',
+  //     headers: {
+  //       'content-type': 'application/json; charset=utf-8',
+  //       'x-pgbb-auth': this.auth?.token,
+  //     },
+  //     body: JSON.stringify(body),
+  //   });
+  //   if (!resp.ok) throw Error(`${resp.status} ${resp.statusText}`);
+  //   return resp.json();
+  // }
 
   get selected_draft() {
     return this.drafts_kv[this.selected_draft_id];
@@ -501,6 +525,7 @@ export class Store {
     }
   }
 
+  /** @param {boolean | null} [fallback]  */
   is_dark(fallback = this.dark.sys) {
     return this.dark.on ?? fallback;
   }
@@ -519,22 +544,31 @@ export class Store {
     this.out.aborter.abort();
   }
 
-  can_wake() {
-    return Boolean(this.out.suspended);
+  can_unsuspend() {
+    return Boolean(this.out.suspended && !this.out.suspended.consumed);
   }
 
-  async wake() {
-    const id = this.out.suspended.wake_id;
-    const { u: user, token } = this.auth;
-    const headers = { 'x-pgbb-auth': token };
-    const arg = new URLSearchParams({ user, id });
-    const resp = await fetch('api/wake?' + arg, { method: 'POST', headers });
-    // TODO report error
-    if (!resp.ok) throw Error('wake error', { cause: resp });
+  async unsuspend() {
+    const state = this.out.suspended;
+    const headers = { 'x-pgbb-auth': this.auth.token };
+    const qs = new URLSearchParams({
+      user: this.auth.u,
+      token: state.token,
+    });
+    state.consumed = true;
+    try {
+      const resp = await fetch('api/unsuspend?' + qs, { method: 'POST', headers });
+      // TODO response body as error
+      if (!resp.ok) throw Error('api/unsuspend error', { cause: resp });
+    } catch (ex) {
+      console.error(ex);
+      state.consumed = false;
+      state.error = ex instanceof Error ? ex.message : String(ex);
+    }
   }
 
   can_run() {
-    return (
+    return Boolean(
       !this.out.loading &&
       this.selected_draft &&
       !this.selected_draft.loading
@@ -603,9 +637,11 @@ export class Store {
       for (const line of lines) {
         out.connecting = false;
         const [tag, payload] = JSON.parse(line);
-        if (tag != 'alive') {
-          out.suspended = null;
+        if (tag == 'alive') {
+          // TODO indicate alive
+          continue;
         }
+        out.suspended = null;
         switch (tag) {
           case 'start':
             stmt_pos = payload.position_utf16;
@@ -628,7 +664,7 @@ export class Store {
             });
             break;
           // TODO CopyData
-          case 'row':
+          case 'row': {
             const frame = out.frames.at(-1);
             for (let col_idx = frame.cols.length; col_idx--;) {
               const datum = payload[col_idx];
@@ -651,9 +687,10 @@ export class Store {
               out.selected_row_idx = 0;
             }
             break;
+          }
           case 'complete':
           case 'error':
-          case 'notice':
+          case 'notice': {
             let position = stmt_pos;
             if (isFinite(payload.position)) {
               let err_pos_1based_codepoints = Number(payload.position);
@@ -664,6 +701,7 @@ export class Store {
             }
             out.messages.push({ tag, position, payload });
             break;
+          }
           case 'suspended':
             out.suspended = payload;
             break;
@@ -673,7 +711,7 @@ export class Store {
               '$1$2$3_$4$5$6', // YYYYMMDD_HHmmss
             );
             const a = document.createElement('a');
-            a.href = `copyout/${encodeURIComponent(payload.id)}`;
+            a.href = `api/copyout/${encodeURIComponent(payload.id)}`;
             a.download = `copyout_${ts}`;
             a.click();
             break;

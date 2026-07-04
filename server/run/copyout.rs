@@ -9,14 +9,19 @@ use std::sync::{Arc, Mutex};
 
 use crate::{AppError, pg};
 
-pub async fn serve_copyout(
-  axum::extract::Path(id): axum::extract::Path<String>,
-  copyouts: axum::extract::State<CopyoutStore>,
+pub async fn api_copyout(
+  axum::extract::Path(token): axum::extract::Path<String>,
+  copyout_bridge: axum::extract::State<CopyoutBridge>,
 ) -> Result<axum::response::Response, AppError> {
   // TODO HEAD request should not take_rx
-  let Some(mut rx) = copyouts.take_rx(&id) else {
+  let rx = u128::from_str_radix(&token, 16)
+    .ok()
+    .and_then(|key| copyout_bridge.take_rx(key));
+
+  let Some(mut rx) = rx else {
     return axum::response::Response::builder()
       .status(axum::http::StatusCode::NOT_FOUND)
+      .header("content-type", "text/plain; charset=utf-8")
       .body("not found\n".into())
       .map_err(|err| err.into());
   };
@@ -37,95 +42,95 @@ pub async fn serve_copyout(
     .map_err(|err| err.into())
 }
 
-#[derive(Clone)]
-pub struct CopyoutStore {
-  rxs: Arc<Mutex<HashMap<u128, mpsc::Receiver<Bytes>>>>,
+async fn pump(
+  pgconn: &mut pg::Connection,
+  tx: &mpsc::Sender<Bytes>,
+) -> io::Result<()> {
+  let mut buf = BytesMut::with_capacity(8 * 1024);
+
+  loop {
+    if pgconn.is_drained() && !buf.is_empty() {
+      let chunk = buf.split().freeze();
+      if let Err(_) = tx.send(chunk).await {
+        let () = std::future::pending().await; // let tx.closed() win
+        unreachable!();
+      }
+    }
+
+    match pgconn.recv_message().await? {
+      pg::CopyData(data) => buf.extend_from_slice(data),
+      pg::CopyDone => break,
+      pg::NoticeResponse(notice) => {
+        log::debug!("notice during COPY OUT: {notice}");
+        // TODO report notice.
+        // Downloading can be suspended if we report notice to msgw
+      }
+      pg::ParameterStatus(..) => {}
+      _ => {} // TODO return error on unexpected message
+    }
+  }
+
+  if !buf.is_empty() {
+    let leftover = buf.freeze();
+    let _ = tx.send(leftover).await;
+  }
+
+  let fin = Bytes::new();
+  let _ = tx.send(fin).await;
+
+  Ok(())
 }
 
-impl CopyoutStore {
+// TODO рассмотреть возможность общего моста для copyout/copyin
+#[derive(Clone)]
+pub struct CopyoutBridge {
+  map: Arc<Mutex<HashMap<u128, mpsc::Receiver<Bytes>>>>,
+}
+
+impl CopyoutBridge {
   pub fn new() -> Self {
-    Self { rxs: Arc::new(Mutex::new(HashMap::new())) }
+    Self { map: Arc::new(Mutex::new(HashMap::new())) }
   }
 
-  fn take_rx(&self, id: &str) -> Option<mpsc::Receiver<Bytes>> {
-    u128::from_str_radix(id, 16)
-      .ok()
-      .and_then(|id| self.rxs.lock().unwrap().remove(&id))
+  fn take_rx(&self, key: u128) -> Option<mpsc::Receiver<Bytes>> {
+    self.map.lock().unwrap().remove(&key)
   }
 
-  pub fn add_new(&self) -> Copyout<'_> {
-    let id_int = {
-      let mut rnd = [0; _];
-      rand_bytes(&mut rnd).unwrap(); // TODO no unwrap
-      u128::from_be_bytes(rnd)
-    };
+  pub fn open(&self) -> Copyout<'_> {
+    let mut rnd = [0; _];
+    rand_bytes(&mut rnd).unwrap(); // TODO no unwrap
+    let key = u128::from_be_bytes(rnd);
     let (tx, rx) = mpsc::channel(1);
-    self.rxs.lock().unwrap().insert(id_int, rx);
-    Copyout { id_int, tx, store: &self }
+    self.map.lock().unwrap().insert(key, rx);
+    Copyout { key, tx, container: self }
   }
 }
 
 pub struct Copyout<'a> {
-  id_int: u128,
+  key: u128,
   tx: mpsc::Sender<Bytes>,
-  store: &'a CopyoutStore,
-}
-
-impl Drop for Copyout<'_> {
-  fn drop(&mut self) {
-    // clean up if the receiver was not taken
-    self.store.rxs.lock().unwrap().remove(&self.id_int);
-  }
+  container: &'a CopyoutBridge,
 }
 
 impl Copyout<'_> {
-  pub fn id(&self) -> impl std::fmt::Display {
-    std::fmt::from_fn(|f| write!(f, "{:032x}", self.id_int))
+  pub fn token(&self) -> impl std::fmt::Display {
+    std::fmt::from_fn(|f| write!(f, "{:032x}", self.key))
   }
 
   pub async fn pump(self, pgconn: &mut pg::Connection) -> io::Result<()> {
     tokio::select! {
-      res = self.pump_inner(pgconn) => res,
+      res = pump(pgconn, &self.tx) => res,
       _ = self.tx.closed() => {
         let _ = pgconn.cancel().await;
         Err(io::Error::other("client gone during download"))
       }
     }
   }
+}
 
-  async fn pump_inner(&self, pgconn: &mut pg::Connection) -> io::Result<()> {
-    let mut buf = BytesMut::with_capacity(8 * 1024);
-
-    loop {
-      if pgconn.is_drained() && !buf.is_empty() {
-        let chunk = buf.split().freeze();
-        if let Err(_) = self.tx.send(chunk).await {
-          let () = std::future::pending().await; // let tx.closed() win
-          unreachable!();
-        }
-      }
-
-      match pgconn.recv_message().await? {
-        pg::CopyData(data) => buf.extend_from_slice(data),
-        pg::CopyDone => break,
-        pg::NoticeResponse(notice) => {
-          log::debug!("notice during COPY OUT: {notice}");
-          // TODO report notice.
-          // Downloading can be suspended if we report notice to msgw
-        }
-        pg::ParameterStatus(..) => {}
-        _ => {} // TODO return error on unexpected message
-      }
-    }
-
-    if !buf.is_empty() {
-      let leftover = buf.freeze();
-      let _ = self.tx.send(leftover).await;
-    }
-
-    let fin = Bytes::new();
-    let _ = self.tx.send(fin).await;
-
-    Ok(())
+impl Drop for Copyout<'_> {
+  fn drop(&mut self) {
+    // clean up if the receiver was not taken
+    self.container.take_rx(self.key);
   }
 }

@@ -1,40 +1,22 @@
 mod copyout;
 mod psqlscan;
+mod unsuspend;
 
 use axum::BoxError;
 use bytes::{Bytes, BytesMut};
 use futures_util::stream;
-use openssl::rand::rand_bytes;
 use serde::Deserialize;
 use tokio::sync::mpsc;
 
 use std::ffi::{CStr, CString};
-use std::fmt::Write;
+use std::fmt::{Display, Write};
 use std::iter;
 
 use crate::{AppError, pg};
 use psqlscan::statement_boundary;
 
-pub use copyout::{CopyoutStore, serve_copyout};
-
-#[derive(Deserialize)]
-pub struct WakeParams {
-  id: String,
-}
-
-// TODO rename api_resume, api_ack, api_scroll
-pub async fn api_wake(
-  axum::extract::State(notifier): axum::extract::State<Notifier>,
-  axum::extract::Query(WakeParams { id }): axum::extract::Query<WakeParams>,
-) -> Result<axum::response::Response, AppError> {
-  if let Ok(id) = u128::from_str_radix(&id, 16) {
-    notifier.notify(id);
-  }
-  axum::response::Response::builder()
-    .header("content-type", "application/json")
-    .body("{\"ok\":true}\n".into())
-    .map_err(|err| err.into())
-}
+pub use copyout::{CopyoutBridge, api_copyout};
+pub use unsuspend::{SuspendBridge, api_unsuspend};
 
 #[derive(Deserialize, Debug)]
 pub struct RunParams {
@@ -43,8 +25,8 @@ pub struct RunParams {
 }
 
 pub async fn api_run(
-  axum::extract::State(notifier): axum::extract::State<Notifier>,
-  copyouts: axum::extract::State<CopyoutStore>,
+  suspend_bridge: axum::extract::State<SuspendBridge>,
+  copyout_bridge: axum::extract::State<CopyoutBridge>,
   axum::extract::Extension(pgctor): axum::extract::Extension<pg::Connector>,
   axum::extract::Query(RunParams { db, tz }): axum::extract::Query<RunParams>,
   // TODO how to accept large sql dump?
@@ -54,22 +36,10 @@ pub async fn api_run(
   //    However, we may run into the request rate limit.
   script: Bytes,
 ) -> Result<axum::response::Response, AppError> {
-  // TODO session bound, so user can wake only own tasks, session_id + pid
-  // TODO rename job_id, task_id, run_id, script_id (should not use wake to not confuse with future wakers)
-  let wake_id = {
-    let mut rnd = [0; _];
-    rand_bytes(&mut rnd)?;
-    u128::from_be_bytes(rnd)
-  };
-
   let (tx, mut rx) = mpsc::channel::<Bytes>(1);
 
-  let mut msgw = MessageWriter {
-    wake_id,
-    notifier,
-    tx: tx.clone(),
-    buf: BytesMut::with_capacity(16 * 1024),
-  };
+  let buf = BytesMut::with_capacity(16 * 1024);
+  let mut msgw = MessageWriter { tx: tx.clone(), buf };
 
   let pgctor = pgctor
     // .with(c"statement_timeout", c"1h")
@@ -114,7 +84,7 @@ pub async fn api_run(
         log::debug!("client gone, sending CancelRequest to postgres");
         let _ = pgconn.cancel().await; // TODO timeout
       }
-      res = api_run_inner(&mut pgconn, &mut msgw, &copyouts, &script) => {
+      res = run_impl(&mut pgconn, &mut msgw, &suspend_bridge, &copyout_bridge, &script) => {
         if let Err(err) = res {
           log::error!("failed to execute script: {err}"); // TODO log some request context
           msgw.write_error(err.as_ref());
@@ -159,10 +129,11 @@ pub async fn api_run(
     .map_err(|err| err.into())
 }
 
-async fn api_run_inner(
+async fn run_impl(
   pgconn: &mut pg::Connection,
   msgw: &mut MessageWriter,
-  copyouts: &CopyoutStore,
+  suspend_bridge: &SuspendBridge,
+  copyout_bridge: &CopyoutBridge,
   script: &[u8],
 ) -> Result<(), BoxError> {
   // TODO parse \connect "database" here
@@ -301,18 +272,20 @@ async fn api_run_inner(
       if n_bytes_sent + msgw.len() >= 5 * 1024 * 1024 // 5Mib
         || n_rows_written >= 1000_u32
       {
-        log::debug!("suspended on page boundary");
         // TODO better name for traffic_limit_exceeded, there is a per page limit
         // end_of_page
-        msgw.flush(Some("traffic_limit_exceeded")).await;
+        // log::debug!("suspended on page boundary");
+        let susp = suspend_bridge.get_suspender();
+        msgw.write_suspended("traffic_limit_exceeded", susp.token());
+        msgw.flush().await;
+        susp.unsuspended().await;
+
         n_bytes_sent = 0;
         n_rows_written = 0;
-      }
-
-      // TODO consider FutureExt::now_or_never instead of pgconn.is_drained()
-      if pgconn.is_drained() && msgw.len() > 0 {
+      } else if pgconn.is_drained() && msgw.len() > 0 {
+        // TODO consider FutureExt::now_or_never instead of pgconn.is_drained()
         n_bytes_sent += msgw.len();
-        msgw.flush(None).await;
+        msgw.flush().await;
       }
 
       let msg_res = pgconn.recv_message().await;
@@ -330,10 +303,10 @@ async fn api_run_inner(
         }
         pg::CopyOutResponse(_fmt) => {
           // TODO generate filename source_TIMESTAMP.tsv
-          let cout = copyouts.add_new();
-          msgw.write_copyout(cout.id());
+          let cout = copyout_bridge.open();
+          msgw.write_copyout(cout.token());
           n_bytes_sent += msgw.len();
-          msgw.flush(None).await;
+          msgw.flush().await;
           cout.pump(pgconn).await.map_err(expose_dberror)?;
         }
         // pg::BindComplete => {}
@@ -342,6 +315,8 @@ async fn api_run_inner(
         pg::NoticeResponse(notice) => msgw.write_notice(&notice),
 
         | pg::EmptyQueryResponse { tag } // TODO avoid executing empty queries to avoid synthetic "EMPTY QUERY"?
+        // TODO consider using protocol level row limit,
+        // so statetement_timeout will not cause abort when execution suspended
         | pg::PortalSuspended { tag } // impossible
         | pg::CommandComplete { tag } => {
           msgw.write_complete(tag.to_bytes());
@@ -392,7 +367,10 @@ async fn api_run_inner(
   // Need to somehow determine whether the transaction is explicit or not.
   if has_changes {
     log::debug!("suspended idle_in_transaction");
-    msgw.flush(Some("idle_in_transaction")).await;
+    let susp = suspend_bridge.get_suspender();
+    msgw.write_suspended("idle_in_transaction", susp.token());
+    msgw.flush().await;
+    susp.unsuspended().await;
   }
 
   pgconn.send_sync();
@@ -420,8 +398,6 @@ fn expose_dberror(err: tokio::io::Error) -> BoxError {
 struct MessageWriter {
   buf: BytesMut,
   tx: mpsc::Sender<Bytes>,
-  wake_id: u128,
-  notifier: Notifier,
 }
 
 impl MessageWriter {
@@ -445,19 +421,15 @@ impl MessageWriter {
     // ["row", ["this is valid utf8 text", "this too", ["hexencoded"], "last text cell"]]
     let elems = std::fmt::from_fn(|f| {
       let commas = iter::chain([""], iter::repeat(", "));
-      for (val, comma) in row.clone().zip(commas) {
-        write!(f, "{comma}")?;
-        match val {
-          None => write!(f, "null"),
-          Some(val) => write!(f, "\"{}\"", json_escape_lossy(val)),
-        }?;
-      }
-      Ok(())
+      row.clone().zip(commas).try_for_each(|(val, comma)| match val {
+        None => write!(f, "{comma}null"),
+        Some(val) => write!(f, "{comma}\"{}\"", json_escape_lossy(val)),
+      })
     });
     write!(self.buf, "[\"row\", [{elems}]]\n").unwrap();
   }
 
-  fn write_copyout(&mut self, id: impl std::fmt::Display) {
+  fn write_copyout(&mut self, id: impl Display) {
     // TODO escape id
     write!(self.buf, "[\"copyout\", {{\"id\": \"{id}\"}}]\n").unwrap();
   }
@@ -482,11 +454,23 @@ impl MessageWriter {
     }
   }
 
+  fn write_suspended(&mut self, reason: &str, token: impl Display) {
+    let reason = json_escape(reason);
+    // TODO escape token
+    write!(
+      self.buf,
+      "[\"suspended\", {{\
+      \"reason\": \"{reason}\",\
+      \"token\": \"{token}\"}}]\n",
+    )
+    .unwrap();
+  }
+
   fn len(&self) -> usize {
     self.buf.len()
   }
 
-  async fn flush(&mut self, suspend_reason: Option<&str>) {
+  async fn flush(&mut self) {
     // use .reserve() so we can safely mutate self.buf after `await`;
     // we don't need cancellation safety right now, but keep it just in case.
     // TODO timeout?. how axum/hyper handles physicaly broken connection?
@@ -495,25 +479,10 @@ impl MessageWriter {
       let () = std::future::pending().await;
       unreachable!();
     };
-    if let Some(suspend_reason) = suspend_reason {
-      let suspend_reason = json_escape(suspend_reason);
-      let wake_id = self.wake_id;
-      write!(
-        self.buf,
-        "[\"suspended\", {{\
-        \"reason\": \"{suspend_reason}\",\
-        \"wake_id\": \"{wake_id:032x}\"}}]\n"
-      )
-      .unwrap();
-    }
     if !self.buf.is_empty() {
       // not final
       let resp_chunk = self.buf.split().freeze();
       permit.send(resp_chunk);
-    }
-    if suspend_reason.is_some() {
-      // TODO we should subscribe to notifier before emit "suspended",
-      self.notifier.notified(self.wake_id).await;
     }
   }
 
@@ -530,14 +499,13 @@ impl MessageWriter {
   }
 }
 
-fn json_rowdescr(fields: &[pg::Field<'_>]) -> impl std::fmt::Display {
+fn json_rowdescr(fields: &[pg::Field<'_>]) -> impl Display {
   std::fmt::from_fn(|f| {
     write!(f, "[")?;
     let commas = iter::chain([""], iter::repeat(","));
     for (field, comma) in fields.iter().zip(commas) {
-      let pg::Field { name, table_oid, table_col, type_oid, type_mod, .. } =
-        field;
-      let name = json_escape_lossy(name.to_bytes());
+      let pg::Field { table_oid, table_col, type_oid, type_mod, .. } = field;
+      let name = json_escape_lossy(field.name.to_bytes());
       write!(
         f,
         "{comma}{{\
@@ -552,7 +520,7 @@ fn json_rowdescr(fields: &[pg::Field<'_>]) -> impl std::fmt::Display {
   })
 }
 
-fn error_json(err: impl std::fmt::Display) -> impl std::fmt::Display {
+fn error_json(err: impl Display) -> impl Display {
   std::fmt::from_fn(move |f| {
     let msg = err.to_string();
     let msg = json_escape(&msg); // TODO accept impl Display
@@ -560,7 +528,7 @@ fn error_json(err: impl std::fmt::Display) -> impl std::fmt::Display {
   })
 }
 
-fn dberror_json(dberr: &pg::DbError) -> impl std::fmt::Display {
+fn dberror_json(dberr: &pg::DbError) -> impl Display {
   std::fmt::from_fn(move |f| {
     write!(f, "{{")?;
     let commas = iter::chain([""], iter::repeat(", "));
@@ -573,7 +541,7 @@ fn dberror_json(dberr: &pg::DbError) -> impl std::fmt::Display {
   })
 }
 
-fn json_escape_lossy(inp: &[u8]) -> impl std::fmt::Display {
+fn json_escape_lossy(inp: &[u8]) -> impl Display {
   std::fmt::from_fn(|f| {
     for chunk in inp.utf8_chunks() {
       let valid = json_escape(chunk.valid());
@@ -588,7 +556,7 @@ fn json_escape_lossy(inp: &[u8]) -> impl std::fmt::Display {
 }
 
 // TODO accept impl Display
-fn json_escape(inp: &str) -> impl std::fmt::Display {
+fn json_escape(inp: &str) -> impl Display {
   // fn need_escape(ch: char) -> bool {
   //   ch.is_ascii_control() || ch == '"' || ch == '\\'
   // }
@@ -615,70 +583,3 @@ fn json_escape(inp: &str) -> impl std::fmt::Display {
     Ok(())
   })
 }
-
-#[derive(Clone)]
-pub struct Notifier {
-  tx: tokio::sync::broadcast::Sender<u128>,
-}
-
-impl Notifier {
-  pub fn new() -> Self {
-    // TODO why not 1? is 16 enough?
-    let tx = tokio::sync::broadcast::Sender::new(16);
-    Self { tx }
-  }
-
-  fn notify(&self, id: u128) {
-    let _ = self.tx.send(id);
-  }
-
-  async fn notified(&self, id: u128) {
-    use tokio::sync::broadcast::error::RecvError;
-    let mut rx = self.tx.subscribe();
-    loop {
-      match rx.recv().await {
-        Ok(notified_id) if notified_id == id => break,
-        Ok(_) => {}
-        // message missed, user need to press MORE again
-        Err(RecvError::Lagged(_)) => {}
-        Err(RecvError::Closed) => {
-          todo!("handle notifier closed");
-        }
-      }
-    }
-  }
-}
-
-/*
-## paging
-
-the client cannot keep millions of rows,
-and the user also needs control over traffic volume.
-Therefore, we need a paging mechanism.
-
-Using backpressure on the client side does not work because fetch
-reads the entire response body uncontrollably, ignoring highWatermark
-(as of 2026-Apr-30, verified in Firefox and Chrome).
-
-We also need a commit confirmation mechanism,
-which requires precise control over the pause point in the request handler code.
-
-Therefore, we implement paging explicitly on the server. Options:
-
-- in-process lock hashmap (local state, breaks horizontal scaling)
-- use a separate PostgreSQL connection and use LISTEN to wait for
-  /api/wake to notify /api/run through another pg connection
-  (cons — two additional connections,
-  increased surface area of the PostgreSQL API usage, and
-  reduced compatibility with PostgreSQL-compatible databases)
-*/
-
-/*
-
-curl -v --raw '192.168.110.58:7890/api/auth' -d 'user=postgres&password='
-
-{"ok":true,"token":"N3NShQFVqcWoFEDNC6pvOCNmj0DBD/QMRvtgfg=="}
-
-curl -v --raw -H 'x-pgbb-auth: N3NShQFVqcWoFEDNC6pvOCNmj0DBD/QMRvtgfg==' '192.168.110.58:7890/api/run?user=postgres&db=postgres&tz=asia/almaty' -d 'select 1'
-
- */

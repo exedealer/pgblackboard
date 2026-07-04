@@ -1,8 +1,10 @@
-const methods = {
-  _render() {
-    const store = this.get_store();
-    const { messages } = store.out;
+/** @import { ComponentMixin } from '../main.js' */
 
+const methods = {
+  ... /** @type {ComponentMixin} */ ({}),
+
+  _render() {
+    const { messages } = this.$store.out;
     return {
       tag: 'div',
       class: 'log',
@@ -23,10 +25,11 @@ const methods = {
     };
   },
   _render_header_content() {
-    const store = this.get_store();
-    const can_wake = store.can_wake();
-    const { suspended, loading, connecting, messages } = store.out;
+    const can_unsuspend = this.$store.can_unsuspend();
+    const { suspended, loading, connecting, messages } = this.$store.out;
     const has_errors = messages.some(m => m.tag == 'error');
+
+    // TODO render suspended.error
 
     if (suspended && suspended.reason == 'idle_in_transaction') {
       return [
@@ -34,10 +37,10 @@ const methods = {
         { tag: 'span', class: 'log-header_text', innerHTML: 'idle in transaction' },
         {
           tag: 'button',
-          class: 'log-wake_commit',
+          class: 'log-unsuspend_commit',
           type: 'button',
-          disabled: !can_wake,
-          onClick: this.wake,
+          disabled: !can_unsuspend,
+          onClick: this.unsuspend,
           innerHTML: 'Commit',
         },
       ];
@@ -49,10 +52,10 @@ const methods = {
         { tag: 'span', class: 'log-header_text', innerHTML: 'traffic limit exceeded' },
         {
           tag: 'button',
-          class: 'log-wake_more',
+          class: 'log-unsuspend_more',
           type: 'button',
-          disabled: !can_wake,
-          onClick: this.wake,
+          disabled: !can_unsuspend,
+          onClick: this.unsuspend,
           innerHTML: 'More',
         },
       ];
@@ -72,8 +75,6 @@ const methods = {
       ];
     }
 
-
-
     if (has_errors) {
       return [
         { tag: 'span', class: 'log-header_icon log-icon_failed' },
@@ -86,11 +87,13 @@ const methods = {
       { tag: 'span', class: 'log-header_text', innerHTML: 'SUCCEEDED' },
     ];
   },
-  _render_item_content({ tag: kind, payload }) {
-    if (kind == 'complete') {
+
+  /** @param {typeof this.$store.out.messages[number]} m */
+  _render_item_content(m) {
+    if (m.tag == 'complete') {
       return [
         { tag: 'span', class: 'log-marker log-icon_complete' },
-        { tag: 'span', class: 'log-complete', innerText: payload },
+        { tag: 'span', class: 'log-complete', innerText: m.payload },
       ];
     }
 
@@ -101,12 +104,11 @@ const methods = {
       message,
       detail,
       hint,
-      position_utf16: _p,
       ...fields
-    } = payload;
+    } = m.payload;
     return [{
       tag: 'details',
-      open: kind == 'error',
+      open: m.tag == 'error',
       inner: [
         {
           tag: 'summary',
@@ -143,13 +145,8 @@ const methods = {
       ],
     }];
   },
-  wake() {
-    this.$store.wake();
-  },
-
-  /** @returns {import('../store/store.js').Store} */
-  get_store() {
-    return this.$store;
+  unsuspend() {
+    this.$store.unsuspend();
   },
 };
 

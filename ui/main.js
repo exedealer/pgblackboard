@@ -36,6 +36,7 @@ editor.defineTheme('pgbb-light', {
   ],
 });
 
+/** @type {Store} */
 const store = reactive(new Store());
 globalThis.debug_store = store;
 
@@ -55,12 +56,21 @@ watch(
   { immediate: true },
 );
 
-const app = createApp(create_vnode(xRoot));
-app.config.globalProperties.$store = store;
-app.config.globalProperties.$cached = function (fn) {
-  const c = fn._vue_computed ||= computed(fn);
-  return c.value;
+const global_props_mixin = {
+  $store: store,
+  /**
+   * @template T
+   * @param {() => T} fn
+   * @return {T}
+  */
+  $cached(fn) {
+    const c = fn._vue_computed ||= computed(fn);
+    return c.value;
+  },
 };
+
+const app = createApp(create_vnode(xRoot));
+Object.assign(app.config.globalProperties, global_props_mixin);
 app.use(pojo_vdom_plugin);
 app.use(broadcast_plugin);
 app.mount('body');
@@ -147,3 +157,6 @@ function fix_firefox_click(doc) {
 }
 
 fix_firefox_click(document);
+
+// TODO $broadcast
+/** @typedef {typeof global_props_mixin} ComponentMixin */

@@ -50,7 +50,7 @@
   white-space: nowrap;
 }
 
-.log-wake_more {
+.log-unsuspend_more {
   all: unset;
   position: absolute;
   inset: 0 0 0 auto;
@@ -68,7 +68,7 @@
   color: light-dark(hsl(0 0 95), hsl(0 0 20));
 }
 
-.log-wake_commit {
+.log-unsuspend_commit {
   all: unset;
   position: absolute;
   inset: 0 0 0 auto;

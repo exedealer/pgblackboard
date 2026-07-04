@@ -11,7 +11,7 @@ use serde::Deserialize;
 use std::ffi::CString;
 use std::sync::Arc;
 
-use run::{CopyoutStore, Notifier, api_run, api_wake, serve_copyout};
+use run::{CopyoutBridge, SuspendBridge, api_copyout, api_run, api_unsuspend};
 
 fn main() -> Result<(), axum::BoxError> {
   use axum::http::Uri;
@@ -77,14 +77,15 @@ fn main() -> Result<(), axum::BoxError> {
   };
 
   let auth = auth::Authenticator::new()?;
-  let notifier = Notifier::new();
-  let copyouts = CopyoutStore::new();
-  let state = Arc::new(AppState { pgctor, auth, notifier, copyouts });
+  let suspend_bridge = SuspendBridge::new();
+  let copyout_bridge = CopyoutBridge::new();
+  let state =
+    Arc::new(AppState { pgctor, auth, suspend_bridge, copyout_bridge });
 
   // TODO request body size limit https://docs.rs/tower-http/latest/tower_http/limit/index.html
   let app = axum::Router::new()
     .route("/api/run", axum::routing::post(api_run))
-    .route("/api/wake", axum::routing::post(api_wake))
+    .route("/api/unsuspend", axum::routing::post(api_unsuspend))
     .route("/api/tree", axum::routing::post(api_tree))
     .route("/api/defn", axum::routing::post(api_defn))
     .route_layer(axum::middleware::from_fn_with_state(
@@ -93,7 +94,10 @@ fn main() -> Result<(), axum::BoxError> {
     ))
     // public routes
     .route("/api/auth", axum::routing::post(api_auth))
-    .route("/copyout/{id}", axum::routing::get(serve_copyout))
+    // it feels like not API, but placing it to /api route
+    // prevents it from mixing with static ui files.
+    // TODO it can be better to move static files to dedicated route instead.
+    .route("/api/copyout/{token}", axum::routing::get(api_copyout))
     .route("/favicon.ico", axum::routing::get(serve_favicon_ico))
     .fallback(ui::serve_ui)
     .layer(axum::middleware::from_fn(log_request))
@@ -140,19 +144,19 @@ async fn on_sigint_or_sigterm() {
 struct AppState {
   pgctor: pg::Connector,
   auth: auth::Authenticator,
-  notifier: Notifier,
-  copyouts: CopyoutStore,
+  suspend_bridge: SuspendBridge,
+  copyout_bridge: CopyoutBridge,
 }
 
-impl axum::extract::FromRef<Arc<AppState>> for Notifier {
+impl axum::extract::FromRef<Arc<AppState>> for SuspendBridge {
   fn from_ref(state: &Arc<AppState>) -> Self {
-    state.notifier.clone()
+    state.suspend_bridge.clone()
   }
 }
 
-impl axum::extract::FromRef<Arc<AppState>> for CopyoutStore {
+impl axum::extract::FromRef<Arc<AppState>> for CopyoutBridge {
   fn from_ref(state: &Arc<AppState>) -> Self {
-    state.copyouts.clone()
+    state.copyout_bridge.clone()
   }
 }
 
